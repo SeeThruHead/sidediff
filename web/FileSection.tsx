@@ -12,6 +12,24 @@ interface Placement {
 
 const GAP = 8;
 
+const fetchSide = (side: 'old' | 'new', path: string) =>
+  fetch(`/api/file?side=${side}&path=${encodeURIComponent(path)}`).then((response) =>
+    response.ok ? response.text() : Promise.reject(new Error(`${side} ${path}: ${response.status}`)),
+  );
+
+const loadSides = async (file: FilePatch) => {
+  const oldPath = file.previousPath ?? file.path;
+  const [oldContents, newContents] = await Promise.all([
+    fetchSide('old', oldPath),
+    fetchSide('new', file.path),
+  ]);
+
+  return {
+    oldFile: { name: oldPath, contents: oldContents },
+    newFile: { name: file.path, contents: newContents },
+  };
+};
+
 const DiffStat = ({ additions, deletions }: { additions: number; deletions: number }) => {
   const total = additions + deletions;
   const filled = (count: number) => (total === 0 ? 0 : Math.round((count / total) * 5));
@@ -216,6 +234,9 @@ export const FileSection = memo(function FileSection({
                 lineDiffType: 'word-alt',
                 diffIndicators: 'classic',
                 unsafeCSS: diffCss(palettes[palette]),
+                hunkSeparators: 'line-info',
+                expansionLineCount: 20,
+                loadDiffFiles: () => loadSides(file),
               }}
               lineAnnotations={lineAnnotations}
               renderAnnotation={(annotation) => (

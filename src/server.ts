@@ -5,7 +5,7 @@ import { type IncomingMessage, type ServerResponse, createServer } from 'node:ht
 import { extname, join, normalize, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { branchName, diff } from './git.js';
+import { branchName, diff, resolveSides, showFile } from './git.js';
 import { type Note, readNotes } from './notes.js';
 
 export interface ServeOptions {
@@ -136,7 +136,31 @@ export const serve = async (options: ServeOptions) => {
       return;
     }
 
-    if (url.pathname === '/' || url.pathname === '/index.html') return sendFile(res, 'index.html');
+    if (url.pathname === '/api/file') {
+      const side = url.searchParams.get('side');
+      const path = url.searchParams.get('path') ?? '';
+      const sides = await resolveSides(options.root, options.range);
+      const inside = normalize(join(options.root, path));
+
+      if (path === '' || relative(options.root, inside).startsWith('..')) return res.writeHead(400).end();
+
+      const contents =
+        side === 'new' && sides.new === null
+          ? await readFile(inside, 'utf8').catch(() => null)
+          : await showFile(options.root, side === 'new' ? (sides.new ?? 'HEAD') : sides.old, path).catch(
+              () => null,
+            );
+
+      if (contents === null) return res.writeHead(404).end();
+
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end(contents);
+    }
+
+    if (url.pathname === '/' || url.pathname === '/index.html') {
+      res.setHeader('cache-control', 'no-store');
+      return sendFile(res, 'index.html');
+    }
 
     return sendFile(res, url.pathname.slice(1));
   };

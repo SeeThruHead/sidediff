@@ -3,6 +3,7 @@ import { registerCustomTheme } from '@pierre/diffs';
 interface Base16 {
   readonly name: string;
   readonly base00: string;
+  readonly code: string;
   readonly base01: string;
   readonly base02: string;
   readonly base03: string;
@@ -22,6 +23,7 @@ export const palettes = {
   'base16-tomorrow-night': {
     name: 'base16-tomorrow-night',
     base00: '#1d1f21',
+    code: '#101112',
     base01: '#282a2e',
     base02: '#373b41',
     base03: '#969896',
@@ -38,9 +40,10 @@ export const palettes = {
   },
   'base16-tomorrow-night-eighties': {
     name: 'base16-tomorrow-night-eighties',
-    base00: '#1a1a1a',
-    base01: '#242424',
-    base02: '#333333',
+    base00: '#2d2d2d',
+    code: '#111111',
+    base01: '#393939',
+    base02: '#515151',
     base03: '#999999',
     base04: '#b4b7b4',
     base05: '#cccccc',
@@ -61,11 +64,11 @@ const toTheme = (p: Base16) => ({
   name: p.name,
   type: 'dark' as const,
   colors: {
-    'editor.background': p.base00,
+    'editor.background': p.code,
     'editor.foreground': p.base05,
   },
   tokenColors: [
-    { settings: { foreground: p.base05, background: p.base00 } },
+    { settings: { foreground: p.base05, background: p.code } },
     { scope: ['comment', 'punctuation.definition.comment'], settings: { foreground: p.base03, fontStyle: 'italic' } },
     { scope: ['string', 'string.template', 'markup.inserted'], settings: { foreground: p.base0B } },
     { scope: ['constant.numeric', 'constant.language', 'constant.character', 'support.constant'], settings: { foreground: p.base09 } },
@@ -85,7 +88,8 @@ const toTheme = (p: Base16) => ({
 
 export const uiVars = (p: Base16): Record<string, string> => ({
   '--bg': p.base00,
-  '--canvas': `color-mix(in srgb, ${p.base00} 80%, black)`,
+  '--code': p.code,
+  '--canvas': `color-mix(in srgb, ${p.base00} 85%, black)`,
   '--panel': `color-mix(in srgb, ${p.base00} 60%, ${p.base01})`,
   '--panel-2': p.base01,
   '--border': p.base02,
@@ -107,13 +111,17 @@ export const registerThemes = () =>
 
 export const diffCss = (p: Base16) => `
   :host {
-    --diffs-dark-bg: ${p.base00};
+    --diffs-dark-bg: ${p.code};
+    --diffs-bg-context-override: ${p.code};
+    --diffs-bg-context-gutter-override: ${p.code};
+    --diffs-bg-buffer-override: color-mix(in lab, ${p.code} 94%, ${p.base05});
+    --diffs-bg-separator-override: color-mix(in lab, ${p.code} 90%, ${p.base05});
     --diffs-addition-color: ${p.base0B};
     --diffs-deletion-color: ${p.base08};
-    --diffs-bg-addition-override: color-mix(in lab, ${p.base00} 90%, ${p.base0B});
-    --diffs-bg-deletion-override: color-mix(in lab, ${p.base00} 90%, ${p.base08});
-    --diffs-bg-addition-emphasis-override: color-mix(in lab, ${p.base00} 78%, ${p.base0B});
-    --diffs-bg-deletion-emphasis-override: color-mix(in lab, ${p.base00} 78%, ${p.base08});
+    --diffs-bg-addition-override: color-mix(in lab, ${p.code} 88%, ${p.base0B});
+    --diffs-bg-deletion-override: color-mix(in lab, ${p.code} 88%, ${p.base08});
+    --diffs-bg-addition-emphasis-override: color-mix(in lab, ${p.code} 76%, ${p.base0B});
+    --diffs-bg-deletion-emphasis-override: color-mix(in lab, ${p.code} 76%, ${p.base08});
     --diffs-font-size: 12px;
     --diffs-line-height: 20px;
     --diffs-font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;

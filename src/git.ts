@@ -27,3 +27,31 @@ export const diff = (cwd: string, range: readonly string[]): Promise<string> =>
     '--find-renames',
     ...range,
   ]);
+
+export interface Sides {
+  readonly old: string;
+  readonly new: string | null;
+}
+
+export const resolveSides = async (cwd: string, range: readonly string[]): Promise<Sides> => {
+  const refs = range.filter((arg) => !arg.startsWith('-'));
+  const [first, second] = refs;
+
+  if (first === undefined) return { old: '', new: null };
+
+  if (first.includes('...')) {
+    const [base = 'HEAD', head = 'HEAD'] = first.split('...');
+    const mergeBase = (await git(cwd, ['merge-base', base || 'HEAD', head || 'HEAD'])).trim();
+    return { old: mergeBase, new: head || 'HEAD' };
+  }
+
+  if (first.includes('..')) {
+    const [base = 'HEAD', head = 'HEAD'] = first.split('..');
+    return { old: base || 'HEAD', new: head || 'HEAD' };
+  }
+
+  return { old: first, new: second ?? null };
+};
+
+export const showFile = (cwd: string, rev: string, path: string): Promise<string> =>
+  git(cwd, ['show', `${rev}:${path}`]);
