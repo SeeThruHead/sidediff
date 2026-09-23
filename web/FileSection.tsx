@@ -2,6 +2,8 @@ import { PatchDiff } from '@pierre/diffs/react';
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { FilePatch, Note } from './patch';
+import type { PaletteName } from './themes';
+import { diffCss, palettes } from './themes';
 
 interface Placement {
   readonly id: string;
@@ -9,6 +11,28 @@ interface Placement {
 }
 
 const GAP = 8;
+
+const DiffStat = ({ additions, deletions }: { additions: number; deletions: number }) => {
+  const total = additions + deletions;
+  const filled = (count: number) => (total === 0 ? 0 : Math.round((count / total) * 5));
+  const added = filled(additions);
+  const removed = Math.min(5 - added, filled(deletions));
+
+  return (
+    <span className="diffstat" aria-label={`${additions} additions, ${deletions} deletions`}>
+      <span className="add">+{additions}</span>
+      <span className="del">-{deletions}</span>
+      <span className="blocks">
+        {Array.from({ length: 5 }, (_, index) => (
+          <span
+            key={index}
+            className={index < added ? 'block add' : index < added + removed ? 'block del' : 'block'}
+          />
+        ))}
+      </span>
+    </span>
+  );
+};
 
 const place = (
   notes: readonly Note[],
@@ -61,19 +85,25 @@ export const FileSection = memo(function FileSection({
   file,
   notes,
   diffStyle,
+  palette,
   showNotes,
   collapsed,
+  viewed,
   activeNote,
   onToggle,
+  onViewed,
   onFocusNote,
 }: {
   file: FilePatch;
   notes: readonly Note[];
   diffStyle: 'split' | 'unified';
+  palette: PaletteName;
   showNotes: boolean;
   collapsed: boolean;
+  viewed: boolean;
   activeNote: string | null;
   onToggle: (path: string) => void;
+  onViewed: (file: FilePatch, viewed: boolean) => void;
   onFocusNote: (id: string) => void;
 }) {
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -140,17 +170,37 @@ export const FileSection = memo(function FileSection({
 
   return (
     <section ref={sectionRef} className="file" id={`file-${file.path}`}>
-      <button className="file-header" onClick={() => onToggle(file.path)}>
-        <span className={`status status-${file.status}`}>{file.status[0]?.toUpperCase()}</span>
-        <span className="file-path">
+      <div className={viewed ? 'file-header viewed' : 'file-header'}>
+        <button
+          className="chevron"
+          aria-label={collapsed ? 'Expand file' : 'Collapse file'}
+          onClick={() => onToggle(file.path)}
+        >
+          {collapsed ? '▸' : '▾'}
+        </button>
+        <DiffStat additions={file.additions} deletions={file.deletions} />
+        <span className="file-path" onClick={() => onToggle(file.path)}>
           {file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}
         </span>
-        <span className="counts">
-          <span className="add">+{file.additions}</span>
-          <span className="del">-{file.deletions}</span>
-          {notes.length > 0 && <span className="note-count">{notes.length} notes</span>}
-        </span>
-      </button>
+        <button
+          className="icon-button"
+          title="Copy path"
+          onClick={() => void navigator.clipboard.writeText(file.path)}
+        >
+          ⧉
+        </button>
+        {file.status !== 'modified' && <span className={`badge badge-${file.status}`}>{file.status}</span>}
+        <span className="spacer" />
+        {notes.length > 0 && <span className="note-count">{notes.length} notes</span>}
+        <label className={viewed ? 'viewed-toggle checked' : 'viewed-toggle'}>
+          <input
+            type="checkbox"
+            checked={viewed}
+            onChange={(event) => onViewed(file, event.target.checked)}
+          />
+          Viewed
+        </label>
+      </div>
       {!collapsed && (
         <div className={showNotes ? 'file-body with-notes' : 'file-body'}>
           <div className="diff">
@@ -159,10 +209,13 @@ export const FileSection = memo(function FileSection({
               disableWorkerPool
               options={{
                 diffStyle,
-                theme: 'pierre-dark',
+                theme: palette,
                 themeType: 'dark',
                 disableFileHeader: true,
                 overflow: 'wrap',
+                lineDiffType: 'word-alt',
+                diffIndicators: 'classic',
+                unsafeCSS: diffCss(palettes[palette]),
               }}
               lineAnnotations={lineAnnotations}
               renderAnnotation={(annotation) => (

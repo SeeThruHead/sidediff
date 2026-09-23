@@ -2,7 +2,9 @@
 
 GitHub-style diff review in the browser, with a live notes column. Built on [`@pierre/diffs`](https://diffs.com).
 
-- Split or unified diffs with syntax highlighting, a file list, and a third column of notes aligned to the lines they describe.
+- GitHub-style review: a collapsible file tree, split or unified diffs, per-file Viewed checkboxes with a progress bar, and a third column of notes aligned to the lines they describe.
+- Base16 Tomorrow Night and Tomorrow Night Eighties themes with muted change highlighting.
+- Viewed marks are stored per repository in the browser and clear themselves when a file changes again, like GitHub.
 - Watch mode by default: edits, commits and checkouts re-render the page without a refresh.
 - Notes are plain files that any tool or agent can write while you read; they appear immediately.
 
