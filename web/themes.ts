@@ -38,9 +38,9 @@ export const palettes = {
   },
   'base16-tomorrow-night-eighties': {
     name: 'base16-tomorrow-night-eighties',
-    base00: '#2d2d2d',
-    base01: '#393939',
-    base02: '#515151',
+    base00: '#1a1a1a',
+    base01: '#242424',
+    base02: '#333333',
     base03: '#999999',
     base04: '#b4b7b4',
     base05: '#cccccc',
@@ -81,6 +81,23 @@ const toTheme = (p: Base16) => ({
     { scope: ['entity.name.namespace', 'entity.name.module'], settings: { foreground: p.base0A } },
     { scope: ['markup.heading', 'entity.name.section'], settings: { foreground: p.base0D, fontStyle: 'bold' } },
   ],
+});
+
+export const uiVars = (p: Base16): Record<string, string> => ({
+  '--bg': p.base00,
+  '--canvas': `color-mix(in srgb, ${p.base00} 80%, black)`,
+  '--panel': `color-mix(in srgb, ${p.base00} 60%, ${p.base01})`,
+  '--panel-2': p.base01,
+  '--border': p.base02,
+  '--border-muted': `color-mix(in srgb, ${p.base01} 50%, ${p.base02})`,
+  '--text': p.base05,
+  '--text-strong': `color-mix(in srgb, ${p.base05} 70%, white)`,
+  '--muted': p.base03,
+  '--accent': p.base0D,
+  '--add': p.base0B,
+  '--del': p.base08,
+  '--note': p.base0A,
+  '--viewed': p.base0C,
 });
 
 export const registerThemes = () =>

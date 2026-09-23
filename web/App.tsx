@@ -1,9 +1,10 @@
+import type React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { FileSection } from './FileSection';
 import { type FilePatch, type Note, type Snapshot, splitPatch } from './patch';
 import { Sidebar } from './Sidebar';
-import { type PaletteName, palettes } from './themes';
+import { type PaletteName, palettes, uiVars } from './themes';
 import { buildTree, filesInOrder } from './tree';
 import { useViewed } from './viewed';
 
@@ -39,7 +40,7 @@ const scrollToAnchor = (id: string) =>
 
 const savedPalette = (): PaletteName => {
   const stored = localStorage.getItem('sidediff:palette');
-  return stored !== null && stored in palettes ? (stored as PaletteName) : 'base16-tomorrow-night';
+  return stored !== null && stored in palettes ? (stored as PaletteName) : 'base16-tomorrow-night-eighties';
 };
 
 export const App = () => {
@@ -155,7 +156,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
   );
 
   return (
-    <div className="app">
+    <div className="app" style={uiVars(palettes[palette]) as React.CSSProperties}>
       <header className="topbar">
         <div className="title">
           <strong>{snapshot.repo.split('/').at(-1)}</strong>
