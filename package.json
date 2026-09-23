@@ -1,0 +1,35 @@
+{
+  "name": "sidediff",
+  "version": "0.1.0",
+  "description": "GitHub-style diff review in the browser, with a live notes column for humans and agents",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "sidediff": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.json",
+    "dev": "vite build --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json --noEmit"
+  },
+  "dependencies": {
+    "@pierre/diffs": "^1.4.3",
+    "open": "^11.0.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  }
+}
