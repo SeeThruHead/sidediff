@@ -41,6 +41,23 @@ sidediff note clear [--file src/app.ts]
 
 Notes are stored one file per note under `<git dir>/sidediff/notes`, so concurrent writers never collide and nothing is committed to the repository.
 
+## Guided tours and conversation
+
+A running server accepts commands that drive the open page, so a person or an agent can walk someone through a change:
+
+```sh
+sidediff show src/app.ts:40                     # scroll there
+sidediff highlight src/app.ts:40-48 --text userId   # select lines and mark text
+sidediff explain src/app.ts:40-48 --title "Why" --body "..." [--speak]   # zoomed popover over the diff
+sidediff say "Next, the worker"                 # spoken through the browser, with a caption
+sidediff clear
+sidediff tour tour.json                         # steps array of the commands above; Next/Back in the page, or ] and [
+sidediff where                                  # which file the reader is on
+sidediff listen [--after <id>] [--wait 600]     # blocks until the reader says something
+```
+
+Press Talk (or `m`) in the page to speak. Recognition uses the browser's built-in speech service (Chrome sends audio to Google; Safari uses Apple's), each finished sentence is posted to the server, and `sidediff listen` returns it. Replies are read aloud with the browser's speech synthesis.
+
 ## Develop
 
 ```sh

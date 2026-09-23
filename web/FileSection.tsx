@@ -108,6 +108,7 @@ export const FileSection = memo(function FileSection({
   collapsed,
   viewed,
   activeNote,
+  selection,
   onToggle,
   onViewed,
   onFocusNote,
@@ -120,6 +121,7 @@ export const FileSection = memo(function FileSection({
   collapsed: boolean;
   viewed: boolean;
   activeNote: string | null;
+  selection: { start: number; end: number; side: 'additions' | 'deletions' } | null;
   onToggle: (path: string) => void;
   onViewed: (file: FilePatch, viewed: boolean) => void;
   onFocusNote: (id: string) => void;
@@ -239,6 +241,7 @@ export const FileSection = memo(function FileSection({
                 loadDiffFiles: () => loadSides(file),
               }}
               lineAnnotations={lineAnnotations}
+              selectedLines={selection}
               renderAnnotation={(annotation) => (
                 <div
                   className={annotation.metadata.id === activeNote ? 'anchor active' : 'anchor'}

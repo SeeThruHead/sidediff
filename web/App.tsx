@@ -2,11 +2,14 @@ import type React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { FileSection } from './FileSection';
+import { useGuide } from './guide';
+import { GuideLayer } from './GuideLayer';
 import { type FilePatch, type Note, type Snapshot, splitPatch } from './patch';
 import { Sidebar } from './Sidebar';
 import { type PaletteName, palettes, uiVars } from './themes';
 import { buildTree, filesInOrder } from './tree';
 import { useViewed } from './viewed';
+import { useVoice } from './voice';
 
 const useSnapshot = () => {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -118,6 +121,42 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
     );
   }, []);
 
+  const openFile = useCallback((path: string) => setOpen(path, true), []);
+  const guide = useGuide(openFile);
+  const voice = useVoice();
+
+  useEffect(() => {
+    const main = document.querySelector('main.files');
+    if (main === null) return;
+
+    const timers = new Map<'t', ReturnType<typeof setTimeout>>();
+    const report = () => {
+      const top = main.getBoundingClientRect().top;
+      const current = [...main.querySelectorAll<HTMLElement>('section.file')].find(
+        (section) => section.getBoundingClientRect().bottom > top + 40,
+      );
+      void fetch('/api/view', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          file: current?.id.replace(/^file-/, '') ?? null,
+          activeNote,
+          tourStep: guide.state.tour?.index ?? null,
+          explaining: guide.state.explanation?.file ?? null,
+        }),
+      });
+    };
+    const onScroll = () => {
+      const existing = timers.get('t');
+      if (existing) clearTimeout(existing);
+      timers.set('t', setTimeout(report, 250));
+    };
+
+    report();
+    main.addEventListener('scroll', onScroll);
+    return () => main.removeEventListener('scroll', onScroll);
+  }, [activeNote, guide.state.tour?.index, guide.state.explanation]);
+
   const choosePalette = (next: PaletteName) => {
     localStorage.setItem('sidediff:palette', next);
     setPalette(next);
@@ -143,11 +182,15 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
       if (event.key === 'p') stepNote(-1);
       if (event.key === 's') setDiffStyle((style) => (style === 'split' ? 'unified' : 'split'));
       if (event.key === 'a') setShowNotes((visible) => !visible);
+      if (event.key === 'Escape') guide.dismiss();
+      if (event.key === ']' && guide.state.tour) guide.goTo(guide.state.tour.index + 1);
+      if (event.key === '[' && guide.state.tour) guide.goTo(guide.state.tour.index - 1);
+      if (event.key === 'm') (voice.listening ? voice.stop : voice.start)();
     };
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [stepNote]);
+  }, [stepNote, guide, voice]);
 
   const viewedCount = files.filter(isViewed).length;
   const totals = files.reduce(
@@ -209,6 +252,11 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
           <button onClick={() => stepNote(1)}>
             ↓ <kbd>n</kbd>
           </button>
+          {voice.supported && (
+            <button className={voice.listening ? 'mic on' : 'mic'} onClick={voice.listening ? voice.stop : voice.start}>
+              {voice.listening ? '● Listening' : 'Talk'} <kbd>m</kbd>
+            </button>
+          )}
           <select value={palette} onChange={(event) => choosePalette(event.target.value as PaletteName)}>
             {Object.keys(palettes).map((name) => (
               <option key={name} value={name}>
@@ -239,12 +287,30 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
             collapsed={!isOpen(file)}
             viewed={isViewed(file)}
             activeNote={activeNote}
+            selection={
+              guide.state.highlight?.file === file.path && guide.state.highlight.start !== undefined
+                ? {
+                    start: guide.state.highlight.start,
+                    end: guide.state.highlight.end ?? guide.state.highlight.start,
+                    side: guide.state.highlight.side,
+                  }
+                : null
+            }
             onToggle={toggleFile}
             onViewed={markViewed}
             onFocusNote={focusNote}
           />
         ))}
       </main>
+      <GuideLayer
+        state={guide.state}
+        palette={palette}
+        voice={voice}
+        onDismiss={guide.dismiss}
+        onStep={guide.goTo}
+        onEndTour={guide.endTour}
+        onClearCaption={() => guide.run({ type: 'say', text: '' })}
+      />
     </div>
   );
 };

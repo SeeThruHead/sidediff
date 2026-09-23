@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { gitDir, repoRoot } from './git.js';
@@ -16,6 +17,16 @@ Usage
   sidediff note rm <id>
   sidediff note clear [--file <path>]
 
+Drive the open view (needs a running server)
+  sidediff show <file>[:line[-end]] [--side old]            scroll there
+  sidediff highlight <file>:<a>-<b> [--text <substring>]    select lines, optionally mark text
+  sidediff explain <file>:<a>-<b> --title <t> --body <b> [--speak]   zoomed popover with an explanation
+  sidediff say <text>                                       speak through the browser and show a caption
+  sidediff clear                                            remove highlights and popovers
+  sidediff tour <steps.json>                                load a guided tour (next/previous in the page)
+  sidediff where                                            what the reader is looking at
+  sidediff listen [--after <id>] [--wait <seconds>]         wait for the next thing said into the mic
+
 Examples
   sidediff                        working tree against HEAD
   sidediff origin/main...HEAD     a branch against its base
@@ -31,7 +42,98 @@ const readStdin = async (): Promise<string> => {
 
 const locate = async () => {
   const root = await repoRoot(process.cwd());
-  return { root, notes: notesDir(await gitDir(root)) };
+  const directory = await gitDir(root);
+  return { root, notes: notesDir(directory), state: join(directory, 'sidediff') };
+};
+
+const serverUrl = async () => {
+  const { state } = await locate();
+  const raw = await readFile(join(state, 'server.json'), 'utf8').catch(() => null);
+  if (raw === null) throw new Error('no sidediff server is running for this repository; start one with `sidediff <range>`');
+
+  const { port, host } = JSON.parse(raw) as { port: number; host: string };
+  return `http://${host}:${port}`;
+};
+
+const post = async (path: string, body: unknown) => {
+  const response = await fetch(`${await serverUrl()}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`${path} failed with ${response.status}`);
+
+  return response.json() as Promise<unknown>;
+};
+
+const parseLocation = (value: string | undefined) => {
+  if (value === undefined) throw new Error('expected <file>[:line[-end]]');
+
+  const match = /^(.+?)(?::(\d+)(?:-(\d+))?)?$/.exec(value);
+  if (match === null) throw new Error(`cannot read location ${value}`);
+
+  const start = match[2] === undefined ? undefined : Number(match[2]);
+  const end = match[3] === undefined ? start : Number(match[3]);
+  return { file: match[1] ?? value, start, end };
+};
+
+const controlOptions = {
+  side: { type: 'string' },
+  text: { type: 'string' },
+  title: { type: 'string' },
+  body: { type: 'string' },
+  speak: { type: 'boolean' },
+  wait: { type: 'string' },
+  after: { type: 'string' },
+} as const;
+
+const controlCommand = async (action: string, args: readonly string[]) => {
+  const { values, positionals } = parseArgs({ args: [...args], allowPositionals: true, options: controlOptions });
+  const side = values.side === 'old' ? 'deletions' : 'additions';
+
+  if (action === 'show' || action === 'highlight' || action === 'explain') {
+    const location = parseLocation(positionals[0]);
+    const result = await post('/api/command', {
+      type: action,
+      ...location,
+      side,
+      text: values.text,
+      title: values.title,
+      body: values.body ?? positionals.slice(1).join(' '),
+      speak: values.speak === true,
+    });
+    return console.log(JSON.stringify(result));
+  }
+
+  if (action === 'say') {
+    const text = positionals.join(' ');
+    return console.log(JSON.stringify(await post('/api/command', { type: 'say', text })));
+  }
+
+  if (action === 'clear') return console.log(JSON.stringify(await post('/api/command', { type: 'clear' })));
+
+  if (action === 'tour') {
+    const path = positionals[0];
+    if (path === undefined) throw new Error('tour needs a JSON file of steps');
+
+    const steps = JSON.parse(await readFile(path, 'utf8')) as unknown;
+    return console.log(JSON.stringify(await post('/api/command', { type: 'tour', steps })));
+  }
+
+  if (action === 'where') {
+    const response = await fetch(`${await serverUrl()}/api/view`);
+    return console.log(JSON.stringify(await response.json(), null, 2));
+  }
+
+  if (action === 'listen') {
+    const after = values.after ?? '';
+    const wait = values.wait ?? '600';
+    const response = await fetch(`${await serverUrl()}/api/listen?after=${after}&wait=${wait}`);
+    const heard = (await response.json()) as { id: number; text: string }[];
+    return heard.forEach((utterance) => console.log(`${utterance.id}\t${utterance.text}`));
+  }
+
+  throw new Error(`unknown command ${action}`);
 };
 
 const noteCommand = async (args: readonly string[]) => {
@@ -119,11 +221,12 @@ const serveCommand = async (args: readonly string[]) => {
 
   if (values.help) return console.log(usage);
 
-  const { root, notes } = await locate();
+  const { root, notes, state } = await locate();
   const watchMode = values['no-watch'] !== true;
   const server = await serve({
     root,
     notes,
+    state,
     range: positionals.map(String),
     port: Number(values.port),
     host: String(values.host),
@@ -148,6 +251,8 @@ const main = async () => {
   const [first, ...rest] = process.argv.slice(2);
 
   if (first === 'note') return noteCommand(rest);
+  if (first !== undefined && ['show', 'highlight', 'explain', 'say', 'clear', 'tour', 'where', 'listen'].includes(first))
+    return controlCommand(first, rest);
 
   return serveCommand(first === undefined ? [] : [first, ...rest]);
 };

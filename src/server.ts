@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { type FSWatcher, watch } from 'node:fs';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http';
 import { extname, join, normalize, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ import { type Note, readNotes } from './notes.js';
 export interface ServeOptions {
   readonly root: string;
   readonly notes: string;
+  readonly state: string;
   readonly range: readonly string[];
   readonly port: number;
   readonly host: string;
@@ -62,9 +63,32 @@ const debounce = (wait: number, fn: () => void) => {
   };
 };
 
+interface Utterance {
+  readonly id: number;
+  readonly text: string;
+  readonly at: string;
+}
+
+const readBody = async (req: IncomingMessage): Promise<unknown> => {
+  const chunks = await Array.fromAsync(req);
+  const text = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString('utf8');
+  return text.length === 0 ? {} : (JSON.parse(text) as unknown);
+};
+
+const json = (res: ServerResponse, status: number, body: unknown) => {
+  res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+  res.end(JSON.stringify(body));
+};
+
 export const serve = async (options: ServeOptions) => {
   const cells = new Map<'snapshot', Snapshot>();
   const clients = new Set<ServerResponse>();
+  const views = new Map<'view', unknown>();
+  const utterances: Utterance[] = [];
+  const listeners = new Set<(utterance: Utterance) => void>();
+
+  const broadcast = (event: string, data: unknown) =>
+    clients.forEach((client) => client.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
 
   const build = async (): Promise<Snapshot> => {
     const [patch, notes, branch] = await Promise.all([
@@ -136,6 +160,55 @@ export const serve = async (options: ServeOptions) => {
       return;
     }
 
+    if (url.pathname === '/api/command' && req.method === 'POST') {
+      const command = await readBody(req);
+      broadcast('command', command);
+      return json(res, 200, { delivered: clients.size });
+    }
+
+    if (url.pathname === '/api/view') {
+      if (req.method === 'POST') {
+        views.set('view', await readBody(req));
+        return json(res, 200, { ok: true });
+      }
+      return json(res, 200, views.get('view') ?? null);
+    }
+
+    if (url.pathname === '/api/utterance' && req.method === 'POST') {
+      const body = (await readBody(req)) as { text?: unknown };
+      const text = typeof body.text === 'string' ? body.text.trim() : '';
+      if (text.length === 0) return json(res, 400, { error: 'text required' });
+
+      const utterance = { id: utterances.length + 1, text, at: new Date().toISOString() };
+      utterances.push(utterance);
+      listeners.forEach((listener) => listener(utterance));
+      broadcast('utterance', utterance);
+      return json(res, 200, utterance);
+    }
+
+    if (url.pathname === '/api/listen') {
+      const after = Number(url.searchParams.get('after') ?? utterances.length);
+      const waitMs = Math.min(Number(url.searchParams.get('wait') ?? 600) * 1000, 3_600_000);
+      const pending = utterances.filter((utterance) => utterance.id > after);
+      if (pending.length > 0) return json(res, 200, pending);
+
+      const timer = setTimeout(() => {
+        listeners.delete(onUtterance);
+        json(res, 200, []);
+      }, waitMs);
+      const onUtterance = (utterance: Utterance) => {
+        clearTimeout(timer);
+        listeners.delete(onUtterance);
+        json(res, 200, [utterance]);
+      };
+      listeners.add(onUtterance);
+      req.on('close', () => {
+        clearTimeout(timer);
+        listeners.delete(onUtterance);
+      });
+      return;
+    }
+
     if (url.pathname === '/api/file') {
       const side = url.searchParams.get('side');
       const path = url.searchParams.get('path') ?? '';
@@ -199,8 +272,12 @@ export const serve = async (options: ServeOptions) => {
     });
 
   const port = await listen(options.port);
+  const stateFile = join(options.state, 'server.json');
+
+  await writeFile(stateFile, JSON.stringify({ port, host: options.host, pid: process.pid }));
 
   const close = () => {
+    void rm(stateFile, { force: true });
     clearInterval(heartbeat);
     watchers.forEach((watcher) => watcher.close());
     clients.forEach((client) => client.end());

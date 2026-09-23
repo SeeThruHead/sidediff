@@ -9,6 +9,7 @@ interface Base16 {
   readonly base03: string;
   readonly base04: string;
   readonly base05: string;
+  readonly base07?: string;
   readonly base08: string;
   readonly base09: string;
   readonly base0A: string;
@@ -125,5 +126,10 @@ export const diffCss = (p: Base16) => `
     --diffs-font-size: 12px;
     --diffs-line-height: 20px;
     --diffs-font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    --diffs-selection-color-override: ${p.base0A};
+  }
+  ::highlight(sidediff-text) {
+    background-color: color-mix(in srgb, ${p.base0A} 45%, transparent);
+    color: ${p.base07 ?? '#ffffff'};
   }
 `;
