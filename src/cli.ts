@@ -126,11 +126,20 @@ const controlCommand = async (action: string, args: readonly string[]) => {
   }
 
   if (action === 'listen') {
-    const after = values.after ?? '';
-    const wait = values.wait ?? '600';
-    const response = await fetch(`${await serverUrl()}/api/listen?after=${after}&wait=${wait}`);
-    const heard = (await response.json()) as { id: number; text: string }[];
-    return heard.forEach((utterance) => console.log(`${utterance.id}\t${utterance.text}`));
+    const base = await serverUrl();
+    const deadline = Date.now() + Number(values.wait ?? '600') * 1000;
+    const poll = async (): Promise<{ id: number; text: string }[]> => {
+      const remaining = Math.ceil((deadline - Date.now()) / 1000);
+      if (remaining <= 0) return [];
+
+      const response = await fetch(
+        `${base}/api/listen?after=${values.after ?? ''}&wait=${Math.min(remaining, 240)}`,
+      );
+      const heard = (await response.json()) as { id: number; text: string }[];
+      return heard.length > 0 ? heard : poll();
+    };
+
+    return (await poll()).forEach((utterance) => console.log(`${utterance.id}\t${utterance.text}`));
   }
 
   throw new Error(`unknown command ${action}`);
