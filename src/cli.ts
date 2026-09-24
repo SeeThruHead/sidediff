@@ -24,6 +24,7 @@ Drive the open view (needs a running server)
   sidediff say <text>                                       show a caption (--speak to also read it aloud)
   sidediff clear                                            remove highlights and popovers
   sidediff tour <steps.json>                                load a guided tour (next/previous in the page)
+  sidediff next | back | goto <step>                        move through the loaded tour
   sidediff where                                            what the reader is looking at
   sidediff listen [--after <id>] [--wait <seconds>]         wait for the next thing said into the mic
 
@@ -109,6 +110,12 @@ const controlCommand = async (action: string, args: readonly string[]) => {
     const text = positionals.join(' ');
     return console.log(JSON.stringify(await post('/api/command', { type: 'say', text, speak: values.speak === true })));
   }
+
+  if (action === 'next' || action === 'back')
+    return console.log(JSON.stringify(await post('/api/command', { type: action })));
+
+  if (action === 'goto')
+    return console.log(JSON.stringify(await post('/api/command', { type: 'goto', index: Number(positionals[0] ?? 1) - 1 })));
 
   if (action === 'clear') return console.log(JSON.stringify(await post('/api/command', { type: 'clear' })));
 
@@ -260,7 +267,7 @@ const main = async () => {
   const [first, ...rest] = process.argv.slice(2);
 
   if (first === 'note') return noteCommand(rest);
-  if (first !== undefined && ['show', 'highlight', 'explain', 'say', 'clear', 'tour', 'where', 'listen'].includes(first))
+  if (first !== undefined && ['show', 'highlight', 'explain', 'say', 'clear', 'tour', 'next', 'back', 'goto', 'where', 'listen'].includes(first))
     return controlCommand(first, rest);
 
   return serveCommand(first === undefined ? [] : [first, ...rest]);

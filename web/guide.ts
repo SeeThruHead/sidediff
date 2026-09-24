@@ -22,7 +22,12 @@ export type Step =
   | { readonly type: 'say'; readonly text: string; readonly speak?: boolean }
   | { readonly type: 'clear' };
 
-export type Command = Step | { readonly type: 'tour'; readonly steps: readonly Step[] };
+export type Command =
+  | Step
+  | { readonly type: 'tour'; readonly steps: readonly Step[] }
+  | { readonly type: 'next' }
+  | { readonly type: 'back' }
+  | { readonly type: 'goto'; readonly index: number };
 
 export interface GuideState {
   readonly highlight: Target | null;
@@ -194,6 +199,11 @@ export const useGuide = (openFile: (path: string) => void) => {
 
   const run = useCallback(
     (command: Command) => {
+      const tour = stateRef.current.tour;
+
+      if (command.type === 'next') return tour ? goTo(tour.index + 1) : undefined;
+      if (command.type === 'back') return tour ? goTo(tour.index - 1) : undefined;
+      if (command.type === 'goto') return goTo(command.index);
       if (command.type !== 'tour') return runStep(command);
 
       command.steps.forEach((step) => {
@@ -203,7 +213,7 @@ export const useGuide = (openFile: (path: string) => void) => {
       const first = command.steps[0];
       if (first !== undefined) runStep(first);
     },
-    [runStep],
+    [runStep, goTo],
   );
 
   useEffect(() => {

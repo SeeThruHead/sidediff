@@ -96,9 +96,16 @@ export const parseIntent = (text: string, files: readonly string[]): Intent | nu
   if (spoken.length <= 3 && has(spoken, 'show', 'notes')) return { kind: 'notes', visible: true };
   if (spoken.length <= 4 && (has(spoken, 'expand') || has(spoken, 'show', 'more'))) return { kind: 'expand' };
 
-  if (spoken.length <= 3 && (has(spoken, 'next') || has(spoken, 'move', 'on') || has(spoken, 'continue')))
+  const tail = spoken.slice(-3).join(' ');
+  if (
+    (spoken.length <= 3 && (has(spoken, 'next') || has(spoken, 'move', 'on') || has(spoken, 'continue'))) ||
+    /(^| )(next( one| step| please)?|move on|go on|keep going)( please)?$/.test(tail)
+  )
     return { kind: 'next' };
-  if (spoken.length <= 3 && (has(spoken, 'back') || has(spoken, 'previous') || has(spoken, 'go', 'back')))
+  if (
+    (spoken.length <= 3 && (has(spoken, 'back') || has(spoken, 'previous') || has(spoken, 'go', 'back'))) ||
+    /(^| )(go back|previous( step)?|back one)( please)?$/.test(tail)
+  )
     return { kind: 'back' };
   if (spoken.length <= 3 && (has(spoken, 'close') || has(spoken, 'dismiss') || has(spoken, 'hide', 'that')))
     return { kind: 'close' };
