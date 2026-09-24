@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 interface RecognitionResult {
   readonly isFinal: boolean;
@@ -31,6 +31,25 @@ const recognitionConstructor = (): RecognitionConstructor | null => {
   return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
 };
 
+const interimListeners = new Set<() => void>();
+const interimValue = new Map<'v', string>([['v', '']]);
+
+const setInterimText = (text: string) => {
+  if (interimValue.get('v') === text) return;
+
+  interimValue.set('v', text);
+  interimListeners.forEach((listener) => listener());
+};
+
+export const useInterim = () =>
+  useSyncExternalStore(
+    (listener) => {
+      interimListeners.add(listener);
+      return () => interimListeners.delete(listener);
+    },
+    () => interimValue.get('v') ?? '',
+  );
+
 export const sendUtterance = (text: string, handled: boolean) =>
   fetch('/api/utterance', {
     method: 'POST',
@@ -43,7 +62,6 @@ export const useVoice = (onFinal: (text: string) => void) => {
   onFinalRef.current = onFinal;
   const supported = recognitionConstructor() !== null;
   const [listening, setListening] = useState(false);
-  const [interim, setInterim] = useState('');
   const [error, setError] = useState<string | null>(null);
   const recognition = useRef<Recognition | null>(null);
   const wanted = useRef(false);
@@ -62,7 +80,7 @@ export const useVoice = (onFinal: (text: string) => void) => {
       const pending = results.filter((result) => !result.isFinal).map((result) => result[0].transcript);
 
       finals.filter((text) => text.trim().length > 0).forEach((text) => onFinalRef.current(text.trim()));
-      setInterim(pending.join(' '));
+      setInterimText(pending.join(' '));
     };
     instance.onerror = (event) => {
       if (event.error !== 'no-speech' && event.error !== 'aborted') setError(event.error);
@@ -82,7 +100,7 @@ export const useVoice = (onFinal: (text: string) => void) => {
   const stop = useCallback(() => {
     wanted.current = false;
     recognition.current?.stop();
-    setInterim('');
+    setInterimText('');
     setListening(false);
   }, []);
 
@@ -100,5 +118,5 @@ export const useVoice = (onFinal: (text: string) => void) => {
     return () => stop();
   }, [start, stop]);
 
-  return { supported, listening, interim, error, start, stop };
+  return { supported, listening, error, start, stop };
 };

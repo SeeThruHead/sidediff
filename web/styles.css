@@ -661,3 +661,7 @@ kbd {
   color: var(--text-strong);
   font-weight: 600;
 }
+
+.file-placeholder {
+  background: var(--code);
+}

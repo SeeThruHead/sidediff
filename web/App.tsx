@@ -42,6 +42,8 @@ const scrollToAnchor = (id: string) =>
     .querySelector(`[data-note-anchor="${id}"]`)
     ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
+const noNotes: readonly Note[] = [];
+
 const savedPalette = (): PaletteName => {
   const stored = localStorage.getItem('sidediff:palette');
   return stored !== null && stored in palettes ? (stored as PaletteName) : 'base16-tomorrow-night-eighties';
@@ -64,6 +66,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
   const [activeNote, setActiveNote] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [currentFile, setCurrentFile] = useState<string | null>(null);
+  const [pinnedFile, setPinnedFile] = useState<string | null>(null);
 
   useEffect(() => {
     const main = document.querySelector('main.files');
@@ -141,12 +144,16 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
 
   const jumpTo = useCallback((path: string) => {
     setOpen(path, true);
+    setPinnedFile(path);
     requestAnimationFrame(() =>
       document.getElementById(`file-${path}`)?.scrollIntoView({ behavior: 'instant', block: 'start' }),
     );
   }, []);
 
-  const openFile = useCallback((path: string) => setOpen(path, true), []);
+  const openFile = useCallback((path: string) => {
+    setOpen(path, true);
+    setPinnedFile(path);
+  }, []);
   const guide = useGuide(openFile);
 
 
@@ -364,13 +371,14 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
           <FileSection
             key={file.path}
             file={file}
-            notes={notesByFile[file.path] ?? []}
+            notes={notesByFile[file.path] ?? noNotes}
             diffStyle={diffStyle}
             palette={palette}
             showNotes={showNotes}
             collapsed={!isOpen(file)}
             viewed={isViewed(file)}
             activeNote={activeNote}
+            pinned={file.path === pinnedFile || guide.state.highlight?.file === file.path}
             selection={
               guide.state.highlight?.file === file.path && guide.state.highlight.start !== undefined
                 ? {

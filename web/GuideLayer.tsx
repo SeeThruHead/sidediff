@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { type Explanation, type GuideState, fileContents } from './guide';
 import { type PaletteName, diffCss, palettes } from './themes';
+import { useInterim } from './voice';
 
 const useFileContents = (explanation: Explanation | null) => {
   const [contents, setContents] = useState<string | null>(null);
@@ -100,15 +101,18 @@ export const GuideLayer = ({
 }: {
   state: GuideState;
   palette: PaletteName;
-  voice: { listening: boolean; interim: string };
+  voice: { listening: boolean };
   onDismiss: () => void;
   onStep: (index: number) => void;
   onEndTour: () => void;
   onClearCaption: () => void;
-}) => (
+}) => {
+  const interim = useInterim();
+
+  return (
   <>
     {state.explanation && <Popover explanation={state.explanation} palette={palette} onClose={onDismiss} />}
-    {(state.caption || state.tour || (voice.listening && voice.interim)) && (
+    {(state.caption || state.tour || (voice.listening && interim)) && (
       <footer className="guide-bar">
         {state.tour && (
           <div className="tour-controls">
@@ -132,8 +136,9 @@ export const GuideLayer = ({
             {state.caption}
           </div>
         )}
-        {voice.listening && voice.interim && <div className="interim">🎙 {voice.interim}</div>}
+        {voice.listening && interim && <div className="interim">🎙 {interim}</div>}
       </footer>
     )}
   </>
 );
+};

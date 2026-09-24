@@ -1,5 +1,5 @@
 import { PatchDiff } from '@pierre/diffs/react';
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { FilePatch, Note } from './patch';
 import type { PaletteName } from './themes';
@@ -109,6 +109,7 @@ export const FileSection = memo(function FileSection({
   viewed,
   activeNote,
   selection,
+  pinned,
   onToggle,
   onViewed,
   onFocusNote,
@@ -122,6 +123,7 @@ export const FileSection = memo(function FileSection({
   viewed: boolean;
   activeNote: string | null;
   selection: { start: number; end: number; side: 'additions' | 'deletions' } | null;
+  pinned: boolean;
   onToggle: (path: string) => void;
   onViewed: (file: FilePatch, viewed: boolean) => void;
   onFocusNote: (id: string) => void;
@@ -130,6 +132,46 @@ export const FileSection = memo(function FileSection({
   const columnRef = useRef<HTMLDivElement | null>(null);
   const cards = useRef(new Map<string, HTMLElement>());
   const [placements, setPlacements] = useState<readonly Placement[]>([]);
+  const [near, setNear] = useState(false);
+  const bodyHeight = useRef<number | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const mounted = near || pinned;
+
+  useEffect(() => {
+    const section = sectionRef.current;
+    if (section === null) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry === undefined) return;
+        if (!entry.isIntersecting && bodyRef.current) bodyHeight.current = bodyRef.current.offsetHeight;
+        setNear(entry.isIntersecting);
+      },
+      { root: section.closest('main'), rootMargin: '1800px 0px' },
+    );
+    observer.observe(section);
+
+    return () => observer.disconnect();
+  }, []);
+
+  const estimatedHeight = bodyHeight.current ?? Math.max(80, (file.additions + file.deletions + 12) * 20);
+
+  const diffOptions = useMemo(
+    () => ({
+      diffStyle,
+      theme: palette,
+      themeType: 'dark' as const,
+      disableFileHeader: true,
+      overflow: 'wrap' as const,
+      lineDiffType: 'word-alt' as const,
+      diffIndicators: 'classic' as const,
+      unsafeCSS: diffCss(palettes[palette]),
+      hunkSeparators: 'line-info' as const,
+      expansionLineCount: 20,
+      loadDiffFiles: () => loadSides(file),
+    }),
+    [diffStyle, palette, file],
+  );
 
   const lineAnnotations = useMemo(
     () =>
@@ -167,20 +209,20 @@ export const FileSection = memo(function FileSection({
 
   useLayoutEffect(() => {
     const section = sectionRef.current;
-    if (section === null || !showNotes || collapsed) return;
+    if (section === null || !showNotes || collapsed || !mounted) return;
 
     layout();
 
     const resize = new ResizeObserver(() => layout());
     const mutation = new MutationObserver(() => layout());
     resize.observe(section);
-    mutation.observe(section, { childList: true, subtree: true });
+    mutation.observe(section, { childList: true });
 
     return () => {
       resize.disconnect();
       mutation.disconnect();
     };
-  }, [layout, showNotes, collapsed]);
+  }, [layout, showNotes, collapsed, mounted]);
 
   const topOf = (id: string) => placements.find((placement) => placement.id === id)?.top ?? 0;
   const columnHeight = placements.reduce(
@@ -221,25 +263,14 @@ export const FileSection = memo(function FileSection({
           Viewed
         </label>
       </div>
-      {!collapsed && (
-        <div className={showNotes ? 'file-body with-notes' : 'file-body'}>
+      {!collapsed && !mounted && <div className="file-placeholder" style={{ height: estimatedHeight }} />}
+      {!collapsed && mounted && (
+        <div ref={bodyRef} className={showNotes ? 'file-body with-notes' : 'file-body'}>
           <div className="diff">
             <PatchDiff
               patch={file.patch}
               disableWorkerPool
-              options={{
-                diffStyle,
-                theme: palette,
-                themeType: 'dark',
-                disableFileHeader: true,
-                overflow: 'wrap',
-                lineDiffType: 'word-alt',
-                diffIndicators: 'classic',
-                unsafeCSS: diffCss(palettes[palette]),
-                hunkSeparators: 'line-info',
-                expansionLineCount: 20,
-                loadDiffFiles: () => loadSides(file),
-              }}
+              options={diffOptions}
               lineAnnotations={lineAnnotations}
               selectedLines={selection}
               renderAnnotation={(annotation) => (
