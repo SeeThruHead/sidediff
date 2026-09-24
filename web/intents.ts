@@ -5,7 +5,13 @@ export type Intent =
   | { readonly kind: 'scroll'; readonly direction: 1 | -1; readonly amount: 'page' | 'half' }
   | { readonly kind: 'line'; readonly line: number }
   | { readonly kind: 'file'; readonly path: string }
-  | { readonly kind: 'top' };
+  | { readonly kind: 'top' }
+  | { readonly kind: 'viewed'; readonly value: boolean }
+  | { readonly kind: 'note'; readonly direction: 1 | -1 }
+  | { readonly kind: 'layout'; readonly style: 'split' | 'unified' }
+  | { readonly kind: 'notes'; readonly visible: boolean }
+  | { readonly kind: 'expand' }
+  | { readonly kind: 'stop' };
 
 const numberWords: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -77,6 +83,18 @@ export const parseIntent = (text: string, files: readonly string[]): Intent | nu
   if (spoken.length === 0 || spoken.length > 8) return null;
 
   const first = spoken[0];
+
+  if (spoken.length <= 4 && has(spoken, 'stop', 'listening')) return { kind: 'stop' };
+  if (spoken.length <= 4 && (has(spoken, 'mark', 'viewed') || has(spoken, 'mark', 'as', 'viewed') || has(spoken, 'mark', 'reviewed')))
+    return { kind: 'viewed', value: true };
+  if (spoken.length <= 4 && (has(spoken, 'unmark') || has(spoken, 'not', 'viewed'))) return { kind: 'viewed', value: false };
+  if (spoken.length <= 3 && has(spoken, 'next', 'note')) return { kind: 'note', direction: 1 };
+  if (spoken.length <= 3 && (has(spoken, 'previous', 'note') || has(spoken, 'last', 'note'))) return { kind: 'note', direction: -1 };
+  if (spoken.length <= 3 && (has(spoken, 'split') || has(spoken, 'side', 'by', 'side'))) return { kind: 'layout', style: 'split' };
+  if (spoken.length <= 3 && (has(spoken, 'unified') || has(spoken, 'inline'))) return { kind: 'layout', style: 'unified' };
+  if (spoken.length <= 3 && has(spoken, 'hide', 'notes')) return { kind: 'notes', visible: false };
+  if (spoken.length <= 3 && has(spoken, 'show', 'notes')) return { kind: 'notes', visible: true };
+  if (spoken.length <= 4 && (has(spoken, 'expand') || has(spoken, 'show', 'more'))) return { kind: 'expand' };
 
   if (spoken.length <= 3 && (has(spoken, 'next') || has(spoken, 'move', 'on') || has(spoken, 'continue')))
     return { kind: 'next' };

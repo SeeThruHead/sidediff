@@ -64,7 +64,9 @@ export const useVoice = (onFinal: (text: string) => void) => {
       finals.filter((text) => text.trim().length > 0).forEach((text) => onFinalRef.current(text.trim()));
       setInterim(pending.join(' '));
     };
-    instance.onerror = (event) => setError(event.error);
+    instance.onerror = (event) => {
+      if (event.error !== 'no-speech' && event.error !== 'aborted') setError(event.error);
+    };
     instance.onend = () => {
       if (wanted.current) instance.start();
       else setListening(false);
@@ -84,7 +86,19 @@ export const useVoice = (onFinal: (text: string) => void) => {
     setListening(false);
   }, []);
 
-  useEffect(() => () => stop(), [stop]);
+  useEffect(() => {
+    const permissions = navigator.permissions as
+      | { query: (descriptor: { name: string }) => Promise<{ state: string }> }
+      | undefined;
+    void permissions
+      ?.query({ name: 'microphone' })
+      .then((status) => {
+        if (status.state === 'granted') start();
+      })
+      .catch(() => undefined);
+
+    return () => stop();
+  }, [start, stop]);
 
   return { supported, listening, interim, error, start, stop };
 };

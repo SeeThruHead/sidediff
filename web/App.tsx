@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { FileSection } from './FileSection';
 import { useGuide } from './guide';
@@ -125,42 +125,6 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
   const openFile = useCallback((path: string) => setOpen(path, true), []);
   const guide = useGuide(openFile);
 
-  const handleSpeech = useCallback(
-    (text: string) => {
-      const intent = parseIntent(text, allFiles.map((file) => file.path));
-      const main = document.querySelector('main.files');
-      const tour = guide.state.tour;
-
-      if (intent === null) return void sendUtterance(text, false);
-      if ((intent.kind === 'next' || intent.kind === 'back') && tour === null)
-        return void sendUtterance(text, false);
-
-      if (intent.kind === 'next' && tour) guide.goTo(tour.index + 1);
-      if (intent.kind === 'back' && tour) guide.goTo(tour.index - 1);
-      if (intent.kind === 'close') guide.dismiss();
-      if (intent.kind === 'scroll') main?.scrollBy({ top: intent.direction * main.clientHeight * 0.8, behavior: 'instant' });
-      if (intent.kind === 'top') main?.scrollTo({ top: 0, behavior: 'instant' });
-      if (intent.kind === 'file') {
-        guide.dismiss();
-        jumpTo(intent.path);
-      }
-      if (intent.kind === 'line') {
-        const current = [...document.querySelectorAll<HTMLElement>('section.file')].find(
-          (section) => section.getBoundingClientRect().bottom > (main?.getBoundingClientRect().top ?? 0) + 40,
-        );
-        const file = current?.id.replace(/^file-/, '');
-        if (file) guide.run({ type: 'highlight', file, start: intent.line, end: intent.line, side: 'additions' });
-      }
-
-      void sendUtterance(text, true);
-    },
-    [allFiles, guide, jumpTo],
-  );
-  const voice = useVoice(handleSpeech);
-
-  useEffect(() => {
-    (window as unknown as { sidediffHear?: (text: string) => void }).sidediffHear = handleSpeech;
-  }, [handleSpeech]);
 
   useEffect(() => {
     const main = document.querySelector('main.files');
@@ -210,6 +174,64 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
     },
     [orderedNotes, activeNote],
   );
+
+  const handleSpeech = useCallback(
+    (text: string) => {
+      const intent = parseIntent(text, allFiles.map((file) => file.path));
+      const main = document.querySelector('main.files');
+      const tour = guide.state.tour;
+
+      if (intent === null) return void sendUtterance(text, false);
+      if ((intent.kind === 'next' || intent.kind === 'back') && tour === null)
+        return void sendUtterance(text, false);
+
+      if (intent.kind === 'stop') voiceRef.current?.stop();
+      if (intent.kind === 'note') stepNote(intent.direction);
+      if (intent.kind === 'layout') setDiffStyle(intent.style);
+      if (intent.kind === 'notes') setShowNotes(intent.visible);
+      if (intent.kind === 'viewed' || intent.kind === 'expand') {
+        const current = [...document.querySelectorAll<HTMLElement>('section.file')].find(
+          (section) => section.getBoundingClientRect().bottom > (main?.getBoundingClientRect().top ?? 0) + 40,
+        );
+        const file = allFiles.find((item) => `file-${item.path}` === current?.id);
+        if (file && intent.kind === 'viewed') markViewed(file, intent.value);
+        if (current && intent.kind === 'expand')
+          current
+            .querySelector('diffs-container')
+            ?.shadowRoot?.querySelectorAll<HTMLElement>('[data-expand-button]')
+            .forEach((button) => {
+              const rect = button.getBoundingClientRect();
+              if (rect.bottom > 0 && rect.top < window.innerHeight) button.click();
+            });
+      }
+      if (intent.kind === 'next' && tour) guide.goTo(tour.index + 1);
+      if (intent.kind === 'back' && tour) guide.goTo(tour.index - 1);
+      if (intent.kind === 'close') guide.dismiss();
+      if (intent.kind === 'scroll') main?.scrollBy({ top: intent.direction * main.clientHeight * 0.8, behavior: 'instant' });
+      if (intent.kind === 'top') main?.scrollTo({ top: 0, behavior: 'instant' });
+      if (intent.kind === 'file') {
+        guide.dismiss();
+        jumpTo(intent.path);
+      }
+      if (intent.kind === 'line') {
+        const current = [...document.querySelectorAll<HTMLElement>('section.file')].find(
+          (section) => section.getBoundingClientRect().bottom > (main?.getBoundingClientRect().top ?? 0) + 40,
+        );
+        const file = current?.id.replace(/^file-/, '');
+        if (file) guide.run({ type: 'highlight', file, start: intent.line, end: intent.line, side: 'additions' });
+      }
+
+      void sendUtterance(text, true);
+    },
+    [allFiles, guide, jumpTo, stepNote, markViewed],
+  );
+  const voice = useVoice(handleSpeech);
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
+
+  useEffect(() => {
+    (window as unknown as { sidediffHear?: (text: string) => void }).sidediffHear = handleSpeech;
+  }, [handleSpeech]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
