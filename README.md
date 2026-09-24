@@ -11,8 +11,14 @@ GitHub-style diff review in the browser, with a live notes column. Built on [`@p
 
 ## Install
 
+Not published to npm. Install from source:
+
 ```sh
-npm install -g sidediff
+git clone https://github.com/SeeThruHead/sidediff.git
+cd sidediff
+pnpm install
+pnpm run build
+npm link
 ```
 
 ## Use
