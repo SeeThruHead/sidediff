@@ -31,14 +31,16 @@ const recognitionConstructor = (): RecognitionConstructor | null => {
   return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
 };
 
-const send = (text: string) =>
+export const sendUtterance = (text: string, handled: boolean) =>
   fetch('/api/utterance', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, handled }),
   });
 
-export const useVoice = () => {
+export const useVoice = (onFinal: (text: string) => void) => {
+  const onFinalRef = useRef(onFinal);
+  onFinalRef.current = onFinal;
   const supported = recognitionConstructor() !== null;
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState('');
@@ -59,7 +61,7 @@ export const useVoice = () => {
       const finals = results.filter((result) => result.isFinal).map((result) => result[0].transcript);
       const pending = results.filter((result) => !result.isFinal).map((result) => result[0].transcript);
 
-      finals.filter((text) => text.trim().length > 0).forEach((text) => void send(text));
+      finals.filter((text) => text.trim().length > 0).forEach((text) => onFinalRef.current(text.trim()));
       setInterim(pending.join(' '));
     };
     instance.onerror = (event) => setError(event.error);

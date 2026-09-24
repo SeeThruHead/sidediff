@@ -91,18 +91,40 @@ export const applyTextHighlight = (target: Target | null) => {
   CSS.highlights.set('sidediff-text', new Highlight(...ranges));
 };
 
+const flash = (rows: readonly HTMLElement[]) => {
+  rows.forEach((row) => row.removeAttribute('data-sidediff-flash'));
+  requestAnimationFrame(() => rows.forEach((row) => row.setAttribute('data-sidediff-flash', '')));
+};
+
 export const scrollToTarget = (target: Target) => {
   const rows = lineRows(target);
   const first = rows[0];
 
   if (first !== undefined) {
-    first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    first.scrollIntoView({ behavior: 'instant', block: 'center' });
+    flash(rows);
     return true;
   }
 
-  document.getElementById(`file-${target.file}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById(`file-${target.file}`)?.scrollIntoView({ behavior: 'instant', block: 'start' });
   return false;
 };
+
+const contents = new Map<string, Promise<string | null>>();
+
+export const fileContents = (file: string, side: Side): Promise<string | null> => {
+  const key = `${side}:${file}`;
+  const cached = contents.get(key);
+  if (cached !== undefined) return cached;
+
+  const request = fetch(`/api/file?side=${side === 'deletions' ? 'old' : 'new'}&path=${encodeURIComponent(file)}`)
+    .then((response) => (response.ok ? response.text() : null))
+    .catch(() => null);
+  contents.set(key, request);
+  return request;
+};
+
+export const clearFileCache = () => contents.clear();
 
 export const useGuide = (openFile: (path: string) => void) => {
   const [state, setState] = useState<GuideState>(initial);
@@ -174,6 +196,9 @@ export const useGuide = (openFile: (path: string) => void) => {
     (command: Command) => {
       if (command.type !== 'tour') return runStep(command);
 
+      command.steps.forEach((step) => {
+        if (step.type === 'explain') void fileContents(step.file, step.side);
+      });
       setState((current) => ({ ...current, tour: { steps: command.steps, index: 0 } }));
       const first = command.steps[0];
       if (first !== undefined) runStep(first);

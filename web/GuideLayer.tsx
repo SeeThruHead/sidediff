@@ -1,7 +1,7 @@
 import { File } from '@pierre/diffs/react';
 import { useEffect, useRef, useState } from 'react';
 
-import type { Explanation, GuideState } from './guide';
+import { type Explanation, type GuideState, fileContents } from './guide';
 import { type PaletteName, diffCss, palettes } from './themes';
 
 const useFileContents = (explanation: Explanation | null) => {
@@ -10,14 +10,14 @@ const useFileContents = (explanation: Explanation | null) => {
   useEffect(() => {
     if (explanation === null) return setContents(null);
 
-    const side = explanation.side === 'deletions' ? 'old' : 'new';
-    const controller = new AbortController();
-    fetch(`/api/file?side=${side}&path=${encodeURIComponent(explanation.file)}`, { signal: controller.signal })
-      .then((response) => (response.ok ? response.text() : null))
-      .then(setContents)
-      .catch(() => undefined);
+    const cancelled = { value: false };
+    void fileContents(explanation.file, explanation.side).then((text) => {
+      if (!cancelled.value) setContents(text);
+    });
 
-    return () => controller.abort();
+    return () => {
+      cancelled.value = true;
+    };
   }, [explanation]);
 
   return contents;
@@ -44,10 +44,10 @@ const Popover = ({
       setTimeout(() => {
         const root = codeRef.current?.querySelector('diffs-container')?.shadowRoot;
         const row = root?.querySelector<HTMLElement>(`[data-line="${start}"]`);
-        if (row) row.scrollIntoView({ block: 'center' });
+        if (row) row.scrollIntoView({ behavior: 'instant', block: 'center' });
         else if (tries > 0) scroll(tries - 1);
-      }, 100);
-    scroll(20);
+      }, 30);
+    scroll(60);
   }, [contents, start]);
 
   return (

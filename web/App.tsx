@@ -9,7 +9,8 @@ import { Sidebar } from './Sidebar';
 import { type PaletteName, palettes, uiVars } from './themes';
 import { buildTree, filesInOrder } from './tree';
 import { useViewed } from './viewed';
-import { useVoice } from './voice';
+import { parseIntent } from './intents';
+import { sendUtterance, useVoice } from './voice';
 
 const useSnapshot = () => {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -117,13 +118,49 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
   const jumpTo = useCallback((path: string) => {
     setOpen(path, true);
     requestAnimationFrame(() =>
-      document.getElementById(`file-${path}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+      document.getElementById(`file-${path}`)?.scrollIntoView({ behavior: 'instant', block: 'start' }),
     );
   }, []);
 
   const openFile = useCallback((path: string) => setOpen(path, true), []);
   const guide = useGuide(openFile);
-  const voice = useVoice();
+
+  const handleSpeech = useCallback(
+    (text: string) => {
+      const intent = parseIntent(text, allFiles.map((file) => file.path));
+      const main = document.querySelector('main.files');
+      const tour = guide.state.tour;
+
+      if (intent === null) return void sendUtterance(text, false);
+      if ((intent.kind === 'next' || intent.kind === 'back') && tour === null)
+        return void sendUtterance(text, false);
+
+      if (intent.kind === 'next' && tour) guide.goTo(tour.index + 1);
+      if (intent.kind === 'back' && tour) guide.goTo(tour.index - 1);
+      if (intent.kind === 'close') guide.dismiss();
+      if (intent.kind === 'scroll') main?.scrollBy({ top: intent.direction * main.clientHeight * 0.8, behavior: 'instant' });
+      if (intent.kind === 'top') main?.scrollTo({ top: 0, behavior: 'instant' });
+      if (intent.kind === 'file') {
+        guide.dismiss();
+        jumpTo(intent.path);
+      }
+      if (intent.kind === 'line') {
+        const current = [...document.querySelectorAll<HTMLElement>('section.file')].find(
+          (section) => section.getBoundingClientRect().bottom > (main?.getBoundingClientRect().top ?? 0) + 40,
+        );
+        const file = current?.id.replace(/^file-/, '');
+        if (file) guide.run({ type: 'highlight', file, start: intent.line, end: intent.line, side: 'additions' });
+      }
+
+      void sendUtterance(text, true);
+    },
+    [allFiles, guide, jumpTo],
+  );
+  const voice = useVoice(handleSpeech);
+
+  useEffect(() => {
+    (window as unknown as { sidediffHear?: (text: string) => void }).sidediffHear = handleSpeech;
+  }, [handleSpeech]);
 
   useEffect(() => {
     const main = document.querySelector('main.files');

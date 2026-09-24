@@ -128,6 +128,13 @@ export const diffCss = (p: Base16) => `
     --diffs-font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
     --diffs-selection-color-override: ${p.base0A};
   }
+  [data-sidediff-flash] {
+    animation: sidediff-flash 1.4s ease-out;
+  }
+  @keyframes sidediff-flash {
+    from { box-shadow: inset 4px 0 0 ${p.base0A}, inset 0 0 0 999px color-mix(in srgb, ${p.base0A} 22%, transparent); }
+    to { box-shadow: inset 4px 0 0 transparent, inset 0 0 0 999px transparent; }
+  }
   ::highlight(sidediff-text) {
     background-color: color-mix(in srgb, ${p.base0A} 45%, transparent);
     color: ${p.base07 ?? '#ffffff'};

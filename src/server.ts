@@ -67,6 +67,7 @@ interface Utterance {
   readonly id: number;
   readonly text: string;
   readonly at: string;
+  readonly handled: boolean;
 }
 
 const readBody = async (req: IncomingMessage): Promise<unknown> => {
@@ -175,13 +176,18 @@ export const serve = async (options: ServeOptions) => {
     }
 
     if (url.pathname === '/api/utterance' && req.method === 'POST') {
-      const body = (await readBody(req)) as { text?: unknown };
+      const body = (await readBody(req)) as { text?: unknown; handled?: unknown };
       const text = typeof body.text === 'string' ? body.text.trim() : '';
       if (text.length === 0) return json(res, 400, { error: 'text required' });
 
-      const utterance = { id: utterances.length + 1, text, at: new Date().toISOString() };
+      const utterance = {
+        id: utterances.length + 1,
+        text,
+        at: new Date().toISOString(),
+        handled: body.handled === true,
+      };
       utterances.push(utterance);
-      listeners.forEach((listener) => listener(utterance));
+      if (!utterance.handled) listeners.forEach((listener) => listener(utterance));
       broadcast('utterance', utterance);
       return json(res, 200, utterance);
     }
@@ -189,7 +195,7 @@ export const serve = async (options: ServeOptions) => {
     if (url.pathname === '/api/listen') {
       const after = Number(url.searchParams.get('after') ?? utterances.length);
       const waitMs = Math.min(Number(url.searchParams.get('wait') ?? 600) * 1000, 3_600_000);
-      const pending = utterances.filter((utterance) => utterance.id > after);
+      const pending = utterances.filter((utterance) => utterance.id > after && !utterance.handled);
       if (pending.length > 0) return json(res, 200, pending);
 
       const timer = setTimeout(() => {
