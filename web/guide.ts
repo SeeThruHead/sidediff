@@ -19,7 +19,7 @@ export type Step =
   | ({ readonly type: 'show' } & Target)
   | ({ readonly type: 'highlight' } & Target)
   | ({ readonly type: 'explain'; readonly speak?: boolean } & Explanation)
-  | { readonly type: 'say'; readonly text: string }
+  | { readonly type: 'say'; readonly text: string; readonly speak?: boolean }
   | { readonly type: 'clear' };
 
 export type Command = Step | { readonly type: 'tour'; readonly steps: readonly Step[] };
@@ -132,7 +132,7 @@ export const useGuide = (openFile: (path: string) => void) => {
       }
 
       if (step.type === 'say') {
-        speak(step.text);
+        if (step.speak) speak(step.text);
         return setState((current) => ({ ...current, caption: step.text }));
       }
 

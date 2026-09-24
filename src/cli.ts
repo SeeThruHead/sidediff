@@ -21,7 +21,7 @@ Drive the open view (needs a running server)
   sidediff show <file>[:line[-end]] [--side old]            scroll there
   sidediff highlight <file>:<a>-<b> [--text <substring>]    select lines, optionally mark text
   sidediff explain <file>:<a>-<b> --title <t> --body <b> [--speak]   zoomed popover with an explanation
-  sidediff say <text>                                       speak through the browser and show a caption
+  sidediff say <text>                                       show a caption (--speak to also read it aloud)
   sidediff clear                                            remove highlights and popovers
   sidediff tour <steps.json>                                load a guided tour (next/previous in the page)
   sidediff where                                            what the reader is looking at
@@ -107,7 +107,7 @@ const controlCommand = async (action: string, args: readonly string[]) => {
 
   if (action === 'say') {
     const text = positionals.join(' ');
-    return console.log(JSON.stringify(await post('/api/command', { type: 'say', text })));
+    return console.log(JSON.stringify(await post('/api/command', { type: 'say', text, speak: values.speak === true })));
   }
 
   if (action === 'clear') return console.log(JSON.stringify(await post('/api/command', { type: 'clear' })));
