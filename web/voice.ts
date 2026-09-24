@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useAtomValue } from '@effect/atom-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+import { interimAtom, registry } from './client';
 
 interface RecognitionResult {
   readonly isFinal: boolean;
@@ -31,31 +34,9 @@ const recognitionConstructor = (): RecognitionConstructor | null => {
   return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
 };
 
-const interimListeners = new Set<() => void>();
-const interimValue = new Map<'v', string>([['v', '']]);
+const setInterimText = (text: string) => registry.set(interimAtom, text);
 
-const setInterimText = (text: string) => {
-  if (interimValue.get('v') === text) return;
-
-  interimValue.set('v', text);
-  interimListeners.forEach((listener) => listener());
-};
-
-export const useInterim = () =>
-  useSyncExternalStore(
-    (listener) => {
-      interimListeners.add(listener);
-      return () => interimListeners.delete(listener);
-    },
-    () => interimValue.get('v') ?? '',
-  );
-
-export const sendUtterance = (text: string, handled: boolean) =>
-  fetch('/api/utterance', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ text, handled }),
-  });
+export const useInterim = () => useAtomValue(interimAtom);
 
 export const useVoice = (onFinal: (text: string) => void) => {
   const onFinalRef = useRef(onFinal);

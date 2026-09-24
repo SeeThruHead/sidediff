@@ -1,3 +1,4 @@
+import { useAtomValue } from '@effect/atom-react';
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -10,31 +11,14 @@ import { type PaletteName, palettes, uiVars } from './themes';
 import { buildTree, filesInOrder } from './tree';
 import { useViewed } from './viewed';
 import { parseIntent } from './intents';
-import { sendUtterance, useVoice } from './voice';
+import { connectedAtom, reportView, sendUtterance, snapshotAtom } from './client';
+import { useVoice } from './voice';
 
 const useSnapshot = () => {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [connected, setConnected] = useState(false);
+  const snapshot = useAtomValue(snapshotAtom);
+  const connected = useAtomValue(connectedAtom);
 
-  useEffect(() => {
-    const load = () =>
-      fetch('/api/state', { cache: 'no-store' })
-        .then((response) => response.json() as Promise<Snapshot>)
-        .then(setSnapshot)
-        .catch(() => setConnected(false));
-
-    load();
-
-    const events = new EventSource('/api/events');
-    events.addEventListener('hello', () => setConnected(true));
-    events.addEventListener('change', () => load());
-    events.onerror = () => setConnected(false);
-    events.onopen = () => setConnected(true);
-
-    return () => events.close();
-  }, []);
-
-  return { snapshot, connected };
+  return { snapshot: snapshot._tag === 'Success' ? snapshot.value : null, connected };
 };
 
 const scrollToAnchor = (id: string) =>
@@ -167,15 +151,11 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
       const current = [...main.querySelectorAll<HTMLElement>('section.file')].find(
         (section) => section.getBoundingClientRect().bottom > top + 40,
       );
-      void fetch('/api/view', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          file: current?.id.replace(/^file-/, '') ?? null,
-          activeNote,
-          tourStep: guide.state.tour?.index ?? null,
-          explaining: guide.state.explanation?.file ?? null,
-        }),
+      reportView({
+        file: current?.id.replace(/^file-/, '') ?? null,
+        activeNote,
+        tourStep: guide.state.tour?.index ?? null,
+        explaining: guide.state.explanation?.file ?? null,
       });
     };
     const onScroll = () => {
@@ -212,9 +192,9 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
       const main = document.querySelector('main.files');
       const tour = guide.state.tour;
 
-      if (intent === null) return void sendUtterance(text, false);
+      if (intent === null) return sendUtterance(text, false);
       if ((intent.kind === 'next' || intent.kind === 'back') && tour === null)
-        return void sendUtterance(text, false);
+        return sendUtterance(text, false);
 
       if (intent.kind === 'stop') voiceRef.current?.stop();
       if (intent.kind === 'note') stepNote(intent.direction);
@@ -252,7 +232,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
         if (file) guide.run({ type: 'highlight', file, start: intent.line, end: intent.line, side: 'additions' });
       }
 
-      void sendUtterance(text, true);
+      sendUtterance(text, true);
     },
     [allFiles, guide, jumpTo, stepNote, markViewed],
   );

@@ -1,33 +1,12 @@
+import { useAtomMount, useAtomSubscribe } from '@effect/atom-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export type Side = 'additions' | 'deletions';
+import type { Command, Explanation, Side, Step, Target } from '../src/protocol';
+import type { Atom } from 'effect/unstable/reactivity';
 
-export interface Target {
-  readonly file: string;
-  readonly start?: number;
-  readonly end?: number;
-  readonly side: Side;
-  readonly text?: string;
-}
+import { commandAtom, readFileSide } from './client';
 
-export interface Explanation extends Target {
-  readonly title?: string;
-  readonly body?: string;
-}
-
-export type Step =
-  | ({ readonly type: 'show' } & Target)
-  | ({ readonly type: 'highlight' } & Target)
-  | ({ readonly type: 'explain'; readonly speak?: boolean } & Explanation)
-  | { readonly type: 'say'; readonly text: string; readonly speak?: boolean }
-  | { readonly type: 'clear' };
-
-export type Command =
-  | Step
-  | { readonly type: 'tour'; readonly steps: readonly Step[] }
-  | { readonly type: 'next' }
-  | { readonly type: 'back' }
-  | { readonly type: 'goto'; readonly index: number };
+export type { Explanation, Side, Target };
 
 export interface GuideState {
   readonly highlight: Target | null;
@@ -115,21 +94,7 @@ export const scrollToTarget = (target: Target) => {
   return false;
 };
 
-const contents = new Map<string, Promise<string | null>>();
-
-export const fileContents = (file: string, side: Side): Promise<string | null> => {
-  const key = `${side}:${file}`;
-  const cached = contents.get(key);
-  if (cached !== undefined) return cached;
-
-  const request = fetch(`/api/file?side=${side === 'deletions' ? 'old' : 'new'}&path=${encodeURIComponent(file)}`)
-    .then((response) => (response.ok ? response.text() : null))
-    .catch(() => null);
-  contents.set(key, request);
-  return request;
-};
-
-export const clearFileCache = () => contents.clear();
+export const fileContents = readFileSide;
 
 export const useGuide = (openFile: (path: string) => void) => {
   const [state, setState] = useState<GuideState>(initial);
@@ -216,11 +181,15 @@ export const useGuide = (openFile: (path: string) => void) => {
     [runStep, goTo],
   );
 
-  useEffect(() => {
-    const events = new EventSource('/api/events');
-    events.addEventListener('command', (event) => run(JSON.parse((event as MessageEvent<string>).data) as Command));
-    return () => events.close();
-  }, [run]);
+  const runRef = useRef(run);
+  runRef.current = run;
+
+  const onDelivered = useCallback((delivered: Atom.Type<typeof commandAtom>) => {
+    if (delivered._tag === 'Success') runRef.current(delivered.value.command);
+  }, []);
+
+  useAtomMount(commandAtom);
+  useAtomSubscribe(commandAtom, onDelivered);
 
   useEffect(() => {
     const id = setTimeout(() => applyTextHighlight(state.highlight), 300);

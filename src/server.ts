@@ -1,294 +1,270 @@
 import { createHash } from 'node:crypto';
-import { type FSWatcher, watch } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { type IncomingMessage, type ServerResponse, createServer } from 'node:http';
-import { extname, join, normalize, relative, sep } from 'node:path';
+import { createServer } from 'node:http';
+import { createServer as createProbe } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
-import { branchName, diff, resolveSides, showFile } from './git.js';
-import { type Note, readNotes } from './notes.js';
+import { NodeHttpServer } from '@effect/platform-node';
+import {
+  Context,
+  DateTime,
+  Duration,
+  Effect,
+  FileSystem,
+  Layer,
+  Path,
+  PubSub,
+  Ref,
+  Schema,
+  Stream,
+  SubscriptionRef,
+} from 'effect';
+import { HttpRouter, HttpServerResponse } from 'effect/unstable/http';
+import { RpcSerialization, RpcServer } from 'effect/unstable/rpc';
 
-export interface ServeOptions {
-  readonly root: string;
-  readonly notes: string;
-  readonly state: string;
-  readonly range: readonly string[];
-  readonly port: number;
-  readonly host: string;
-  readonly watch: boolean;
-}
+import { Git } from './git.js';
+import { Notes } from './notes.js';
+import { type Command, FileMissing, SidediffRpcs, type Snapshot, type Utterance, type View } from './protocol.js';
+import { Repo } from './repo.js';
 
-interface Snapshot {
-  readonly repo: string;
-  readonly branch: string;
-  readonly range: readonly string[];
-  readonly patch: string;
-  readonly notes: readonly Note[];
-  readonly version: string;
-  readonly watching: boolean;
-  readonly updatedAt: string;
-}
+export class ServeOptions extends Context.Service<
+  ServeOptions,
+  {
+    readonly range: readonly string[];
+    readonly port: number;
+    readonly host: string;
+    readonly watch: boolean;
+  }
+>()('sidediff/ServeOptions') {}
 
-const webRoot = join(fileURLToPath(new URL('.', import.meta.url)), 'web');
+export const ServerInfo = Schema.Struct({ port: Schema.Int, host: Schema.String, pid: Schema.Int });
 
-const contentTypes: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.wasm': 'application/wasm',
-  '.json': 'application/json',
-};
+const ignoredSegments = new Set(['node_modules', 'dist', '.next', '.turbo', '.cache', 'coverage']);
 
-const ignoredSegments = ['node_modules', 'dist', '.next', '.turbo', '.cache', 'coverage'];
-
-const isRelevantChange = (root: string, file: string | null): boolean => {
-  if (file === null) return true;
-
-  const parts = normalize(file).split(sep);
-  if (parts.some((part) => ignoredSegments.includes(part))) return false;
+const isRelevant = (file: string) => {
+  const parts = file.split('/');
+  if (parts.some((part) => ignoredSegments.has(part))) return false;
   if (parts[0] !== '.git') return true;
 
   return file.includes('HEAD') || file.includes('refs') || file.endsWith('index');
 };
 
-const debounce = (wait: number, fn: () => void) => {
-  const timers = new Map<'t', NodeJS.Timeout>();
+const versionOf = (patch: string, notes: unknown) =>
+  createHash('sha1').update(patch).update(JSON.stringify(notes)).digest('hex').slice(0, 12);
 
-  return () => {
-    const existing = timers.get('t');
-    if (existing) clearTimeout(existing);
+export class Review extends Context.Service<
+  Review,
+  {
+    readonly snapshots: Stream.Stream<Snapshot>;
+    readonly file: (side: 'old' | 'new', path: string) => Effect.Effect<string, FileMissing>;
+    readonly send: (command: Command) => Effect.Effect<number>;
+    readonly commands: Stream.Stream<Command>;
+    readonly reportView: (view: View) => Effect.Effect<void>;
+    readonly view: Effect.Effect<View | null>;
+    readonly utter: (text: string, handled: boolean) => Effect.Effect<Utterance>;
+    readonly listen: (after: number | undefined) => Stream.Stream<readonly Utterance[]>;
+  }
+>()('sidediff/Review') {
+  static readonly layer = Layer.effect(
+    Review,
+    Effect.gen(function* () {
+      const git = yield* Git;
+      const notes = yield* Notes;
+      const repo = yield* Repo;
+      const options = yield* ServeOptions;
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
 
-    timers.set('t', setTimeout(fn, wait));
-  };
-};
+      const build = Effect.gen(function* () {
+        const [patch, current, branch, now] = yield* Effect.all(
+          [git.diff(repo.root, options.range), notes.list, git.branch(repo.root), DateTime.now],
+          { concurrency: 'unbounded' },
+        );
 
-interface Utterance {
-  readonly id: number;
-  readonly text: string;
-  readonly at: string;
-  readonly handled: boolean;
-}
-
-const readBody = async (req: IncomingMessage): Promise<unknown> => {
-  const chunks = await Array.fromAsync(req);
-  const text = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString('utf8');
-  return text.length === 0 ? {} : (JSON.parse(text) as unknown);
-};
-
-const json = (res: ServerResponse, status: number, body: unknown) => {
-  res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-  res.end(JSON.stringify(body));
-};
-
-export const serve = async (options: ServeOptions) => {
-  const cells = new Map<'snapshot', Snapshot>();
-  const clients = new Set<ServerResponse>();
-  const views = new Map<'view', unknown>();
-  const utterances: Utterance[] = [];
-  const listeners = new Set<(utterance: Utterance) => void>();
-
-  const broadcast = (event: string, data: unknown) =>
-    clients.forEach((client) => client.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-
-  const build = async (): Promise<Snapshot> => {
-    const [patch, notes, branch] = await Promise.all([
-      diff(options.root, options.range),
-      readNotes(options.notes),
-      branchName(options.root),
-    ]);
-    const version = createHash('sha1')
-      .update(patch)
-      .update(JSON.stringify(notes))
-      .digest('hex')
-      .slice(0, 12);
-
-    return {
-      repo: options.root,
-      branch,
-      range: options.range,
-      patch,
-      notes,
-      version,
-      watching: options.watch,
-      updatedAt: new Date().toISOString(),
-    };
-  };
-
-  const refresh = async () => {
-    const next = await build().catch((error: unknown) => {
-      process.stderr.write(`sidediff: refresh failed: ${String(error)}\n`);
-      return null;
-    });
-    if (next === null || next.version === cells.get('snapshot')?.version) return;
-
-    cells.set('snapshot', next);
-
-    clients.forEach((client) => client.write(`event: change\ndata: ${next.version}\n\n`));
-  };
-
-  cells.set('snapshot', await build());
-
-  const sendFile = async (res: ServerResponse, path: string) => {
-    const resolved = normalize(join(webRoot, path));
-    if (relative(webRoot, resolved).startsWith('..')) return res.writeHead(404).end();
-
-    const body = await readFile(resolved).catch(() => null);
-    if (body === null) return res.writeHead(404).end();
-
-    res.writeHead(200, { 'content-type': contentTypes[extname(resolved)] ?? 'application/octet-stream' });
-    res.end(body);
-  };
-
-  const handle = async (req: IncomingMessage, res: ServerResponse) => {
-    const url = new URL(req.url ?? '/', 'http://localhost');
-
-    if (url.pathname === '/api/state') {
-      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      return res.end(JSON.stringify(cells.get('snapshot')));
-    }
-
-    if (url.pathname === '/api/events') {
-      res.writeHead(200, {
-        'content-type': 'text/event-stream',
-        'cache-control': 'no-store',
-        connection: 'keep-alive',
+        return {
+          repo: repo.root,
+          branch,
+          range: options.range,
+          patch,
+          notes: current,
+          version: versionOf(patch, current),
+          watching: options.watch,
+          updatedAt: DateTime.formatIso(now),
+        } satisfies Snapshot;
       });
-      res.write(`event: hello\ndata: ${cells.get('snapshot')?.version ?? ''}\n\n`);
 
-      clients.add(res);
-      req.on('close', () => clients.delete(res));
-      return;
-    }
+      const snapshot = yield* SubscriptionRef.make(yield* build);
 
-    if (url.pathname === '/api/command' && req.method === 'POST') {
-      const command = await readBody(req);
-      broadcast('command', command);
-      return json(res, 200, { delivered: clients.size });
-    }
+      const refresh = build.pipe(
+        Effect.flatMap((next) =>
+          SubscriptionRef.update(snapshot, (current) => (current.version === next.version ? current : next)),
+        ),
+        Effect.catch((error) => Effect.logWarning('[refresh] diff failed', error)),
+      );
 
-    if (url.pathname === '/api/view') {
-      if (req.method === 'POST') {
-        views.set('view', await readBody(req));
-        return json(res, 200, { ok: true });
-      }
-      return json(res, 200, views.get('view') ?? null);
-    }
+      yield* fs.makeDirectory(repo.notes, { recursive: true });
 
-    if (url.pathname === '/api/utterance' && req.method === 'POST') {
-      const body = (await readBody(req)) as { text?: unknown; handled?: unknown };
-      const text = typeof body.text === 'string' ? body.text.trim() : '';
-      if (text.length === 0) return json(res, 400, { error: 'text required' });
+      const changes = Stream.merge(
+        fs.watch(repo.notes),
+        options.watch
+          ? fs.watch(repo.root, { recursive: true }).pipe(Stream.filter((event) => isRelevant(event.path)))
+          : Stream.empty,
+      );
 
-      const utterance = {
-        id: utterances.length + 1,
-        text,
-        at: new Date().toISOString(),
-        handled: body.handled === true,
-      };
-      utterances.push(utterance);
-      if (!utterance.handled) listeners.forEach((listener) => listener(utterance));
-      broadcast('utterance', utterance);
-      return json(res, 200, utterance);
-    }
+      yield* changes.pipe(
+        Stream.debounce(Duration.millis(250)),
+        Stream.runForEach(() => refresh),
+        Effect.catch((error) => Effect.logWarning('[watch] stopped', error)),
+        Effect.forkScoped,
+      );
 
-    if (url.pathname === '/api/listen') {
-      const after = Number(url.searchParams.get('after') ?? utterances.length);
-      const waitMs = Math.min(Number(url.searchParams.get('wait') ?? 600) * 1000, 3_600_000);
-      const pending = utterances.filter((utterance) => utterance.id > after && !utterance.handled);
-      if (pending.length > 0) return json(res, 200, pending);
+      const commands = yield* PubSub.unbounded<Command>();
+      const watchers = yield* Ref.make(0);
+      const views = yield* Ref.make<View | null>(null);
+      const heard = yield* Ref.make<readonly Utterance[]>([]);
+      const spoken = yield* PubSub.unbounded<Utterance>();
 
-      const timer = setTimeout(() => {
-        listeners.delete(onUtterance);
-        json(res, 200, []);
-      }, waitMs);
-      const onUtterance = (utterance: Utterance) => {
-        clearTimeout(timer);
-        listeners.delete(onUtterance);
-        json(res, 200, [utterance]);
-      };
-      listeners.add(onUtterance);
-      req.on('close', () => {
-        clearTimeout(timer);
-        listeners.delete(onUtterance);
-      });
-      return;
-    }
+      const file = (side: 'old' | 'new', relative: string) =>
+        Effect.gen(function* () {
+          const missing = new FileMissing({ side, path: relative });
+          const inside = path.join(repo.root, relative);
+          if (path.relative(repo.root, inside).startsWith('..')) return yield* missing;
 
-    if (url.pathname === '/api/file') {
-      const side = url.searchParams.get('side');
-      const path = url.searchParams.get('path') ?? '';
-      const sides = await resolveSides(options.root, options.range);
-      const inside = normalize(join(options.root, path));
+          const sides = yield* git.sides(repo.root, options.range).pipe(Effect.mapError(() => missing));
 
-      if (path === '' || relative(options.root, inside).startsWith('..')) return res.writeHead(400).end();
+          return side === 'new' && sides.new === null
+            ? yield* fs.readFileString(inside).pipe(Effect.mapError(() => missing))
+            : yield* git
+                .show(repo.root, side === 'new' ? (sides.new ?? 'HEAD') : sides.old, relative)
+                .pipe(Effect.mapError(() => missing));
+        });
 
-      const contents =
-        side === 'new' && sides.new === null
-          ? await readFile(inside, 'utf8').catch(() => null)
-          : await showFile(options.root, side === 'new' ? (sides.new ?? 'HEAD') : sides.old, path).catch(
-              () => null,
+      const utter = (text: string, handled: boolean) =>
+        Effect.gen(function* () {
+          const now = yield* DateTime.now;
+
+          const utterance = yield* Ref.modify(heard, (all) => {
+            const next = { id: all.length + 1, text: text.trim(), at: DateTime.formatIso(now), handled };
+            return [next, [...all, next]];
+          });
+
+          if (!handled) yield* PubSub.publish(spoken, utterance);
+
+          return utterance;
+        });
+
+      const listen = (after: number | undefined) =>
+        Stream.unwrap(
+          Effect.map(Ref.get(heard), (all) => {
+            const since = after ?? all.length;
+            const pending = all.filter((utterance) => utterance.id > since && !utterance.handled);
+            const live = Stream.fromPubSub(spoken).pipe(
+              Stream.filter((utterance) => utterance.id > since),
+              Stream.map((utterance) => [utterance]),
             );
 
-      if (contents === null) return res.writeHead(404).end();
+            return pending.length > 0 ? Stream.concat(Stream.make(pending), live) : live;
+          }),
+        );
 
-      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
-      return res.end(contents);
-    }
+      return {
+        snapshots: SubscriptionRef.changes(snapshot),
+        file,
+        send: (command) => Effect.andThen(PubSub.publish(commands, command), Ref.get(watchers)),
 
-    if (url.pathname === '/' || url.pathname === '/index.html') {
-      res.setHeader('cache-control', 'no-store');
-      return sendFile(res, 'index.html');
-    }
+        commands: Stream.unwrap(
+          Effect.as(
+            Ref.update(watchers, (count) => count + 1),
+            Stream.fromPubSub(commands).pipe(Stream.ensuring(Ref.update(watchers, (count) => count - 1))),
+          ),
+        ),
 
-    return sendFile(res, url.pathname.slice(1));
-  };
+        reportView: (view) => Ref.set(views, view),
+        view: Ref.get(views),
+        utter,
+        listen,
+      };
+    }),
+  );
+}
 
-  const server = createServer((req, res) => {
-    handle(req, res).catch((error: unknown) => {
-      process.stderr.write(`sidediff: ${String(error)}\n`);
-      if (!res.headersSent) res.writeHead(500);
-      res.end();
+const RpcHandlers = SidediffRpcs.toLayer(
+  Effect.gen(function* () {
+    const review = yield* Review;
+
+    return SidediffRpcs.of({
+      Snapshots: () => review.snapshots,
+      File: ({ side, path }) => review.file(side, path),
+      Send: ({ command }) => Effect.map(review.send(command), (delivered) => ({ delivered })),
+      Commands: () => review.commands,
+      ReportView: ({ view }) => review.reportView(view),
+      View: () => review.view,
+      Utter: ({ text, handled }) => review.utter(text, handled),
+      Listen: ({ after }) => review.listen(after),
     });
+  }),
+);
+
+const webRoot = fileURLToPath(new URL('./web', import.meta.url));
+
+const StaticFiles = HttpRouter.add('GET', '/*', (request) =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const pathname = new URL(request.url, 'http://localhost').pathname;
+    const asset = path.join(webRoot, pathname === '/' ? 'index.html' : pathname.slice(1));
+
+    if (path.relative(webRoot, asset).startsWith('..')) return HttpServerResponse.empty({ status: 404 });
+
+    return yield* HttpServerResponse.file(asset, { headers: { 'cache-control': 'no-store' } }).pipe(
+      Effect.orElseSucceed(() => HttpServerResponse.empty({ status: 404 })),
+    );
+  }),
+);
+
+const RpcRoute = RpcServer.layerHttp({ group: SidediffRpcs, path: '/rpc', protocol: 'websocket' }).pipe(
+  Layer.provide(RpcHandlers),
+  Layer.provide(RpcSerialization.layerNdjson),
+);
+
+const portFree = (port: number, host: string) =>
+  Effect.callback<boolean>((resume) => {
+    const probe = createProbe();
+    probe.once('error', () => resume(Effect.succeed(false)));
+    probe.listen(port, host, () => probe.close(() => resume(Effect.succeed(true))));
   });
 
-  const scheduleRefresh = debounce(250, () => void refresh());
+export const freePort = (start: number, host: string): Effect.Effect<number> =>
+  Effect.flatMap(portFree(start, host), (free) => (free ? Effect.succeed(start) : freePort(start + 1, host)));
 
-  await mkdir(options.notes, { recursive: true });
+const Announce = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const repo = yield* Repo;
+    const options = yield* ServeOptions;
 
-  const watchers: FSWatcher[] = [
-    watch(options.notes, () => scheduleRefresh()),
-    ...(options.watch
-      ? [
-          watch(options.root, { recursive: true }, (_event, file) => {
-            if (isRelevantChange(options.root, file === null ? null : String(file))) scheduleRefresh();
-          }),
-        ]
-      : []),
-  ];
+    const info = { port: options.port, host: options.host, pid: process.pid };
 
-  const heartbeat = setInterval(() => clients.forEach((client) => client.write(': ping\n\n')), 20000);
+    yield* Effect.acquireRelease(
+      fs.writeFileString(repo.serverFile, JSON.stringify(Schema.encodeSync(ServerInfo)(info))),
+      () =>
+        fs.readFileString(repo.serverFile).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(ServerInfo))),
+          Effect.flatMap((current) =>
+            current.pid === info.pid ? fs.remove(repo.serverFile, { force: true }) : Effect.void,
+          ),
+          Effect.ignore,
+        ),
+    );
+  }),
+);
 
-  const listen = (port: number): Promise<number> =>
-    new Promise((resolve, reject) => {
-      server.once('error', (error: NodeJS.ErrnoException) =>
-        error.code === 'EADDRINUSE' ? resolve(listen(port + 1)) : reject(error),
-      );
-      server.listen(port, options.host, () => resolve(port));
-    });
-
-  const port = await listen(options.port);
-  const stateFile = join(options.state, 'server.json');
-
-  await writeFile(stateFile, JSON.stringify({ port, host: options.host, pid: process.pid }));
-
-  const close = () => {
-    void rm(stateFile, { force: true });
-    clearInterval(heartbeat);
-    watchers.forEach((watcher) => watcher.close());
-    clients.forEach((client) => client.end());
-    server.close();
-  };
-
-  return { port, close };
-};
+export const serverLayer = (options: Context.Service.Shape<typeof ServeOptions>) =>
+  HttpRouter.serve(Layer.mergeAll(RpcRoute, StaticFiles), { disableListenLog: true, disableLogger: true }).pipe(
+    Layer.provide(Review.layer),
+    Layer.merge(Announce),
+    Layer.provide(NodeHttpServer.layer(createServer, {
+        port: options.port,
+        host: options.host,
+        gracefulShutdownTimeout: Duration.millis(300),
+      })),
+    Layer.provide(Layer.succeed(ServeOptions, options)),
+  );

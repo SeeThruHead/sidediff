@@ -1,6 +1,7 @@
 import { PatchDiff } from '@pierre/diffs/react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
+import { readFile } from './client';
 import type { FilePatch, Note } from './patch';
 import type { PaletteName } from './themes';
 import { diffCss, palettes } from './themes';
@@ -12,10 +13,7 @@ interface Placement {
 
 const GAP = 8;
 
-const fetchSide = (side: 'old' | 'new', path: string) =>
-  fetch(`/api/file?side=${side}&path=${encodeURIComponent(path)}`).then((response) =>
-    response.ok ? response.text() : Promise.reject(new Error(`${side} ${path}: ${response.status}`)),
-  );
+const fetchSide = readFile;
 
 const loadSides = async (file: FilePatch) => {
   const oldPath = file.previousPath ?? file.path;

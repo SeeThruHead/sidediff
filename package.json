@@ -1,6 +1,6 @@
 {
   "name": "sidediff",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "GitHub-style diff review in the browser, with a live notes column for humans and agents",
   "license": "MIT",
   "type": "module",
@@ -19,8 +19,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json --noEmit"
   },
   "dependencies": {
+    "@effect/atom-react": "4.0.0-rc.117",
+    "@effect/platform-browser": "4.0.0-rc.117",
+    "@effect/platform-node": "4.0.0-rc.117",
     "@pierre/diffs": "^1.4.3",
-    "open": "^11.0.4",
+    "effect": "4.0.0-rc.117",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

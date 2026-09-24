@@ -1,57 +1,77 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { Context, Effect, Layer, Schema, Stream } from 'effect';
+import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process';
 
-const run = promisify(execFile);
+export class GitFailed extends Schema.TaggedError<GitFailed>()('GitFailed', {
+  args: Schema.Array(Schema.String),
+  exitCode: Schema.Number,
+}) {}
 
-const git = async (cwd: string, args: readonly string[]): Promise<string> => {
-  const { stdout } = await run('git', [...args], { cwd, maxBuffer: 256 * 1024 * 1024 });
-  return stdout;
-};
+export class Git extends Context.Service<
+  Git,
+  {
+    readonly run: (cwd: string, args: readonly string[]) => Effect.Effect<string, GitFailed>;
+    readonly repoRoot: (cwd: string) => Effect.Effect<string, GitFailed>;
+    readonly commonDir: (cwd: string) => Effect.Effect<string, GitFailed>;
+    readonly branch: (cwd: string) => Effect.Effect<string>;
+    readonly diff: (cwd: string, range: readonly string[]) => Effect.Effect<string, GitFailed>;
+    readonly sides: (
+      cwd: string,
+      range: readonly string[],
+    ) => Effect.Effect<{ readonly old: string; readonly new: string | null }, GitFailed>;
+    readonly show: (cwd: string, rev: string, path: string) => Effect.Effect<string, GitFailed>;
+  }
+>()('sidediff/Git') {
+  static readonly layer = Layer.effect(
+    Git,
+    Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
-export const repoRoot = async (cwd: string): Promise<string> =>
-  (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+      const run = (cwd: string, args: readonly string[]) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const handle = yield* spawner.spawn(ChildProcess.make('git', [...args], { cwd }));
 
-export const gitDir = async (cwd: string): Promise<string> =>
-  (await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim();
+            const [stdout, exitCode] = yield* Effect.all(
+              [Stream.mkString(Stream.decodeText(handle.stdout)), handle.exitCode],
+              { concurrency: 2 },
+            );
 
-export const branchName = async (cwd: string): Promise<string> =>
-  (await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).catch(() => 'HEAD')).trim();
+            return exitCode === 0 ? stdout : yield* new GitFailed({ args, exitCode });
+          }),
+        ).pipe(Effect.catchTag('PlatformError', () => Effect.fail(new GitFailed({ args, exitCode: -1 }))));
 
-export const diff = (cwd: string, range: readonly string[]): Promise<string> =>
-  git(cwd, [
-    '-c',
-    'core.quotepath=false',
-    'diff',
-    '--no-color',
-    '--no-ext-diff',
-    '--find-renames',
-    ...range,
-  ]);
+      const trimmed = (cwd: string, args: readonly string[]) => Effect.map(run(cwd, args), (out) => out.trim());
 
-export interface Sides {
-  readonly old: string;
-  readonly new: string | null;
+      const sides = (cwd: string, range: readonly string[]) => {
+        const [first, second] = range.filter((arg) => !arg.startsWith('-'));
+
+        if (first === undefined) return Effect.succeed({ old: '', new: null });
+
+        if (first.includes('...')) {
+          const [base, head] = first.split('...');
+          const tip = head || 'HEAD';
+
+          return Effect.map(trimmed(cwd, ['merge-base', base || 'HEAD', tip]), (old) => ({ old, new: tip }));
+        }
+
+        if (first.includes('..')) {
+          const [base, head] = first.split('..');
+          return Effect.succeed({ old: base || 'HEAD', new: head || 'HEAD' });
+        }
+
+        return Effect.succeed({ old: first, new: second ?? null });
+      };
+
+      return {
+        run,
+        repoRoot: (cwd) => trimmed(cwd, ['rev-parse', '--show-toplevel']),
+        commonDir: (cwd) => trimmed(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
+        branch: (cwd) => trimmed(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).pipe(Effect.orElseSucceed(() => 'HEAD')),
+        diff: (cwd, range) =>
+          run(cwd, ['-c', 'core.quotepath=false', 'diff', '--no-color', '--no-ext-diff', '--find-renames', ...range]),
+        sides,
+        show: (cwd, rev, path) => run(cwd, ['show', `${rev}:${path}`]),
+      };
+    }),
+  );
 }
-
-export const resolveSides = async (cwd: string, range: readonly string[]): Promise<Sides> => {
-  const refs = range.filter((arg) => !arg.startsWith('-'));
-  const [first, second] = refs;
-
-  if (first === undefined) return { old: '', new: null };
-
-  if (first.includes('...')) {
-    const [base = 'HEAD', head = 'HEAD'] = first.split('...');
-    const mergeBase = (await git(cwd, ['merge-base', base || 'HEAD', head || 'HEAD'])).trim();
-    return { old: mergeBase, new: head || 'HEAD' };
-  }
-
-  if (first.includes('..')) {
-    const [base = 'HEAD', head = 'HEAD'] = first.split('..');
-    return { old: base || 'HEAD', new: head || 'HEAD' };
-  }
-
-  return { old: first, new: second ?? null };
-};
-
-export const showFile = (cwd: string, rev: string, path: string): Promise<string> =>
-  git(cwd, ['show', `${rev}:${path}`]);

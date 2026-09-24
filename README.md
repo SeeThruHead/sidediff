@@ -31,7 +31,7 @@ Keys: `s` split or unified, `a` show or hide notes, `n` / `p` next or previous n
 
 ```sh
 sidediff note add --file src/app.ts --new-line 42 --summary "Why this changed" --rationale "Longer explanation"
-echo '{"comments":[{"filePath":"src/app.ts","newLine":42,"summary":"Why"}]}' | sidediff note apply --stdin
+echo '{"comments":[{"filePath":"src/app.ts","newLine":42,"summary":"Why"}]}' | sidediff note apply
 sidediff note list [--json] [--file src/app.ts]
 sidediff note rm <id>
 sidediff note clear [--file src/app.ts]

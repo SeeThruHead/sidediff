@@ -1,279 +1,282 @@
 #!/usr/bin/env node
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { parseArgs } from 'node:util';
+import { NodeRuntime, NodeServices, NodeSocket } from '@effect/platform-node';
+import { Console, Context, Duration, Effect, FileSystem, Layer, Option, Schema, Stdio, Stream } from 'effect';
+import { Argument, Command, Flag } from 'effect/unstable/cli';
+import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process';
+import { RpcClient, type RpcClientError, type RpcGroup, RpcSerialization } from 'effect/unstable/rpc';
 
-import { gitDir, repoRoot } from './git.js';
-import { type NoteInput, addNotes, clearNotes, notesDir, readNotes, removeNote } from './notes.js';
-import { serve } from './server.js';
+import { Git } from './git.js';
+import { Notes } from './notes.js';
+import { type Command as ViewCommand, NoteBatch, SidediffRpcs, Steps } from './protocol.js';
+import { Repo } from './repo.js';
+import { ServerInfo, freePort, serverLayer } from './server.js';
 
-const usage = `sidediff: GitHub-style diff review in the browser, with a live notes column
+class NoServer extends Schema.TaggedError<NoServer>()('NoServer', { serverFile: Schema.String }) {
+  override get message() {
+    return 'no sidediff server is running for this repository; start one with `sidediff <range>`';
+  }
+}
 
-Usage
-  sidediff [git diff args...] [--port 4977] [--host 127.0.0.1] [--no-open] [--no-watch]
-  sidediff note add --file <path> (--new-line <n> | --old-line <n>) --summary <text> [--rationale <text>] [--author <name>]
-  sidediff note apply --stdin          JSON {"comments":[{filePath,newLine|oldLine,summary,rationale?,author?}]}
-  sidediff note list [--json] [--file <path>]
-  sidediff note rm <id>
-  sidediff note clear [--file <path>]
+class BadLocation extends Schema.TaggedError<BadLocation>()('BadLocation', { value: Schema.String }) {
+  override get message() {
+    return `cannot read location ${this.value}, expected <file>[:line[-end]]`;
+  }
+}
 
-Drive the open view (needs a running server)
-  sidediff show <file>[:line[-end]] [--side old]            scroll there
-  sidediff highlight <file>:<a>-<b> [--text <substring>]    select lines, optionally mark text
-  sidediff explain <file>:<a>-<b> --title <t> --body <b> [--speak]   zoomed popover with an explanation
-  sidediff say <text>                                       show a caption (--speak to also read it aloud)
-  sidediff clear                                            remove highlights and popovers
-  sidediff tour <steps.json>                                load a guided tour (next/previous in the page)
-  sidediff next | back | goto <step>                        move through the loaded tour
-  sidediff where                                            what the reader is looking at
-  sidediff listen [--after <id>] [--wait <seconds>]         wait for the next thing said into the mic
+class Client extends Context.Service<
+  Client,
+  RpcClient.RpcClient<RpcGroup.Rpcs<typeof SidediffRpcs>, RpcClientError.RpcClientError>
+>()('sidediff/Client') {
+  static readonly layer = Layer.effect(Client, RpcClient.make(SidediffRpcs)).pipe(
+    Layer.provide(RpcClient.layerProtocolSocket()),
+    Layer.provide(
+      Layer.unwrap(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const { serverFile } = yield* Repo;
 
-Examples
-  sidediff                        working tree against HEAD
-  sidediff origin/main...HEAD     a branch against its base
-  sidediff HEAD~1                 the last commit and anything since
+          const info = yield* fs.readFileString(serverFile).pipe(
+            Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(ServerInfo))),
+            Effect.mapError(() => new NoServer({ serverFile })),
+          );
 
-Notes live in <git dir>/sidediff/notes, one file per note, and appear in the browser as they are written.
-`;
+          return NodeSocket.layerWebSocket(`ws://${info.host}:${info.port}/rpc`);
+        }),
+      ),
+    ),
+    Layer.provide(RpcSerialization.layerNdjson),
+  );
+}
 
-const readStdin = async (): Promise<string> => {
-  const chunks = await Array.fromAsync(process.stdin);
-  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString('utf8');
-};
+const print = (value: unknown) => Console.log(JSON.stringify(value));
 
-const locate = async () => {
-  const root = await repoRoot(process.cwd());
-  const directory = await gitDir(root);
-  return { root, notes: notesDir(directory), state: join(directory, 'sidediff') };
-};
+const withClient = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.provide(effect, Client.layer);
 
-const serverUrl = async () => {
-  const { state } = await locate();
-  const raw = await readFile(join(state, 'server.json'), 'utf8').catch(() => null);
-  if (raw === null) throw new Error('no sidediff server is running for this repository; start one with `sidediff <range>`');
+const send = (command: ViewCommand) =>
+  Client.use((client) => client.Send({ command })).pipe(Effect.flatMap(print), withClient);
 
-  const { port, host } = JSON.parse(raw) as { port: number; host: string };
-  return `http://${host}:${port}`;
-};
+const location = Argument.String('location').pipe(Argument.withDescription('<file>[:line[-end]]'));
 
-const post = async (path: string, body: unknown) => {
-  const response = await fetch(`${await serverUrl()}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) throw new Error(`${path} failed with ${response.status}`);
-
-  return response.json() as Promise<unknown>;
-};
-
-const parseLocation = (value: string | undefined) => {
-  if (value === undefined) throw new Error('expected <file>[:line[-end]]');
-
+const parseLocation = (value: string) => {
   const match = /^(.+?)(?::(\d+)(?:-(\d+))?)?$/.exec(value);
-  if (match === null) throw new Error(`cannot read location ${value}`);
+  if (match === null || match[1] === undefined) return Effect.fail(new BadLocation({ value }));
 
   const start = match[2] === undefined ? undefined : Number(match[2]);
   const end = match[3] === undefined ? start : Number(match[3]);
-  return { file: match[1] ?? value, start, end };
+
+  return Effect.succeed({
+    file: match[1],
+    ...(start === undefined ? {} : { start }),
+    ...(end === undefined ? {} : { end }),
+  });
 };
 
-const controlOptions = {
-  side: { type: 'string' },
-  text: { type: 'string' },
-  title: { type: 'string' },
-  body: { type: 'string' },
-  speak: { type: 'boolean' },
-  wait: { type: 'string' },
-  after: { type: 'string' },
-} as const;
+const side = Flag.Literals('side', ['old', 'new']).pipe(
+  Flag.withDefault('new'),
+  Flag.map((value) => (value === 'old' ? ('deletions' as const) : ('additions' as const))),
+);
 
-const controlCommand = async (action: string, args: readonly string[]) => {
-  const { values, positionals } = parseArgs({ args: [...args], allowPositionals: true, options: controlOptions });
-  const side = values.side === 'old' ? 'deletions' : 'additions';
+const optionalText = (name: string) => Flag.String(name).pipe(Flag.optional, Flag.map(Option.getOrUndefined));
 
-  if (action === 'show' || action === 'highlight' || action === 'explain') {
-    const location = parseLocation(positionals[0]);
-    const result = await post('/api/command', {
-      type: action,
-      ...location,
-      side,
-      text: values.text,
-      title: values.title,
-      body: values.body ?? positionals.slice(1).join(' '),
-      speak: values.speak === true,
-    });
-    return console.log(JSON.stringify(result));
-  }
+const defined = <A extends Record<string, unknown>>(fields: A) =>
+  Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as {
+    [K in keyof A]: Exclude<A[K], undefined>;
+  };
 
-  if (action === 'say') {
-    const text = positionals.join(' ');
-    return console.log(JSON.stringify(await post('/api/command', { type: 'say', text, speak: values.speak === true })));
-  }
+const speak = Flag.Boolean('speak').pipe(Flag.withDefault(false));
 
-  if (action === 'next' || action === 'back')
-    return console.log(JSON.stringify(await post('/api/command', { type: action })));
+const show = Command.make('show', { location, side }, ({ location, side }) =>
+  Effect.flatMap(parseLocation(location), (target) => send({ type: 'show', ...target, side })),
+).pipe(Command.withDescription('scroll the open view to <file>[:line[-end]]'));
 
-  if (action === 'goto')
-    return console.log(JSON.stringify(await post('/api/command', { type: 'goto', index: Number(positionals[0] ?? 1) - 1 })));
+const highlight = Command.make(
+  'highlight',
+  { location, side, text: optionalText('text') },
+  ({ location, side, text }) =>
+    Effect.flatMap(parseLocation(location), (target) =>
+      send({ type: 'highlight', ...target, side, ...defined({ text }) }),
+    ),
+).pipe(Command.withDescription('select lines, optionally marking a substring'));
 
-  if (action === 'clear') return console.log(JSON.stringify(await post('/api/command', { type: 'clear' })));
+const explain = Command.make(
+  'explain',
+  { location, side, title: optionalText('title'), body: optionalText('body'), speak },
+  ({ location, side, title, body, speak }) =>
+    Effect.flatMap(parseLocation(location), (target) =>
+      send({ type: 'explain', ...target, side, speak, ...defined({ title, body }) }),
+    ),
+).pipe(Command.withDescription('open a zoomed popover with an explanation'));
 
-  if (action === 'tour') {
-    const path = positionals[0];
-    if (path === undefined) throw new Error('tour needs a JSON file of steps');
+const say = Command.make(
+  'say',
+  { text: Argument.String('text').pipe(Argument.variadic({ min: 1 })), speak },
+  ({ text, speak }) => send({ type: 'say', text: text.join(' '), speak }),
+).pipe(Command.withDescription('show a caption'));
 
-    const steps = JSON.parse(await readFile(path, 'utf8')) as unknown;
-    return console.log(JSON.stringify(await post('/api/command', { type: 'tour', steps })));
-  }
+const clear = Command.make('clear', {}, () => send({ type: 'clear' })).pipe(
+  Command.withDescription('remove highlights and popovers'),
+);
 
-  if (action === 'where') {
-    const response = await fetch(`${await serverUrl()}/api/view`);
-    return console.log(JSON.stringify(await response.json(), null, 2));
-  }
+const tour = Command.make('tour', { steps: Argument.FileSchema('steps', Steps) }, ({ steps }) =>
+  send({ type: 'tour', steps }),
+).pipe(Command.withDescription('load a guided tour from a JSON file of steps'));
 
-  if (action === 'listen') {
-    const base = await serverUrl();
-    const deadline = Date.now() + Number(values.wait ?? '600') * 1000;
-    const poll = async (): Promise<{ id: number; text: string }[]> => {
-      const remaining = Math.ceil((deadline - Date.now()) / 1000);
-      if (remaining <= 0) return [];
+const next = Command.make('next', {}, () => send({ type: 'next' })).pipe(Command.withDescription('next tour step'));
 
-      const response = await fetch(
-        `${base}/api/listen?after=${values.after ?? ''}&wait=${Math.min(remaining, 240)}`,
+const back = Command.make('back', {}, () => send({ type: 'back' })).pipe(
+  Command.withDescription('previous tour step'),
+);
+
+const goto = Command.make('goto', { step: Argument.Int('step') }, ({ step }) =>
+  send({ type: 'goto', index: step - 1 }),
+).pipe(Command.withDescription('jump to tour step <n>'));
+
+const where = Command.make('where', {}, () =>
+  Client.use((client) => client.View()).pipe(
+    Effect.flatMap((view) => Console.log(JSON.stringify(view, null, 2))),
+    withClient,
+  ),
+).pipe(Command.withDescription('what the reader is looking at'));
+
+const listen = Command.make(
+  'listen',
+  {
+    after: Flag.Int('after').pipe(Flag.optional, Flag.map(Option.getOrUndefined)),
+    wait: Flag.Int('wait').pipe(Flag.withDefault(600)),
+  },
+  ({ after, wait }) =>
+    Effect.gen(function* () {
+      const client = yield* Client;
+
+      const heard = yield* client.Listen(after === undefined ? {} : { after }).pipe(
+        Stream.take(1),
+        Stream.runHead,
+        Effect.timeoutOption(Duration.seconds(wait)),
+        Effect.map(Option.flatten),
       );
-      const heard = (await response.json()) as { id: number; text: string }[];
-      return heard.length > 0 ? heard : poll();
-    };
 
-    return (await poll()).forEach((utterance) => console.log(`${utterance.id}\t${utterance.text}`));
-  }
+      yield* Effect.forEach(Option.getOrElse(heard, () => []), (utterance) =>
+        Console.log(`${utterance.id}\t${utterance.text}`),
+      );
+    }).pipe(withClient),
+).pipe(Command.withDescription('wait for the next thing said into the mic'));
 
-  throw new Error(`unknown command ${action}`);
-};
+const noteAdd = Command.make(
+  'add',
+  {
+    file: Flag.String('file'),
+    newLine: Flag.Int('new-line').pipe(Flag.optional, Flag.map(Option.getOrUndefined)),
+    oldLine: Flag.Int('old-line').pipe(Flag.optional, Flag.map(Option.getOrUndefined)),
+    summary: Flag.String('summary'),
+    rationale: optionalText('rationale'),
+    author: optionalText('author'),
+  },
+  ({ file, newLine, oldLine, summary, rationale, author }) =>
+    Effect.gen(function* () {
+      const notes = yield* Notes;
+      const [note] = yield* notes.add([
+        { filePath: file, summary, ...defined({ newLine, oldLine, rationale, author }) },
+      ]);
 
-const noteCommand = async (args: readonly string[]) => {
-  const [action, ...rest] = args;
-  const { values, positionals } = parseArgs({
-    args: [...rest],
-    allowPositionals: true,
-    options: {
-      file: { type: 'string' },
-      'new-line': { type: 'string' },
-      'old-line': { type: 'string' },
-      summary: { type: 'string' },
-      rationale: { type: 'string' },
-      author: { type: 'string' },
-      stdin: { type: 'boolean' },
-      json: { type: 'boolean' },
-    },
-  });
-  const { notes } = await locate();
+      yield* Console.log(`added ${note?.id} on ${note?.filePath}:${note?.line}`);
+    }),
+).pipe(Command.withDescription('add one note'));
 
-  if (action === 'add') {
-    const input: NoteInput = {
-      filePath: values.file ?? '',
-      newLine: values['new-line'] === undefined ? undefined : Number(values['new-line']),
-      oldLine: values['old-line'] === undefined ? undefined : Number(values['old-line']),
-      summary: values.summary ?? '',
-      rationale: values.rationale,
-      author: values.author,
-    };
-    const [note] = await addNotes(notes, [input]);
+const noteApply = Command.make('apply', {}, () =>
+  Effect.gen(function* () {
+    const stdio = yield* Stdio.Stdio;
+    const notes = yield* Notes;
 
-    return console.log(`added ${note?.id} on ${note?.filePath}:${note?.line}`);
-  }
+    const text = yield* Stream.mkString(Stream.decodeText(stdio.stdin));
+    const batch = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(NoteBatch))(text);
+    const added = yield* notes.add('comments' in batch ? batch.comments : batch);
 
-  if (action === 'apply') {
-    if (!values.stdin) throw new Error('note apply reads its batch from --stdin');
+    yield* Console.log(`added ${added.length} notes`);
+  }),
+).pipe(Command.withDescription('add a batch from stdin: {"comments":[{filePath,newLine|oldLine,summary,...}]}'));
 
-    const payload = JSON.parse(await readStdin()) as { comments?: NoteInput[] } | NoteInput[];
-    const inputs = Array.isArray(payload) ? payload : (payload.comments ?? []);
-    const added = await addNotes(notes, inputs);
+const noteList = Command.make(
+  'list',
+  { json: Flag.Boolean('json').pipe(Flag.withDefault(false)), file: optionalText('file') },
+  ({ json, file }) =>
+    Effect.gen(function* () {
+      const notes = yield* Notes;
+      const shown = (yield* notes.list).filter((note) => file === undefined || note.filePath === file);
 
-    return console.log(`added ${added.length} notes`);
-  }
+      if (json) return yield* Console.log(JSON.stringify(shown, null, 2));
 
-  if (action === 'list') {
-    const all = await readNotes(notes);
-    const shown = all.filter((note) => values.file === undefined || note.filePath === values.file);
+      yield* Effect.forEach(shown, (note) => Console.log(`${note.id}  ${note.filePath}:${note.line}  ${note.summary}`));
+    }),
+).pipe(Command.withDescription('list notes'));
 
-    if (values.json) return console.log(JSON.stringify(shown, null, 2));
+const noteRemove = Command.make('rm', { id: Argument.String('id') }, ({ id }) =>
+  Effect.gen(function* () {
+    const notes = yield* Notes;
+    yield* notes.remove(id);
+    yield* Console.log(`removed ${id}`);
+  }),
+).pipe(Command.withDescription('remove a note'));
 
-    return shown.forEach((note) =>
-      console.log(`${note.id}  ${note.filePath}:${note.line}  ${note.summary}`),
-    );
-  }
+const noteClear = Command.make('clear', { file: optionalText('file') }, ({ file }) =>
+  Effect.gen(function* () {
+    const notes = yield* Notes;
+    const count = yield* notes.clear(file);
+    yield* Console.log(`cleared ${count} notes`);
+  }),
+).pipe(Command.withDescription('remove every note, or every note on one file'));
 
-  if (action === 'rm') {
-    const id = positionals[0];
-    if (id === undefined) throw new Error('note rm needs a note id');
+const note = Command.make('note').pipe(
+  Command.withDescription('notes live in <git dir>/sidediff/notes and appear in the browser as they are written'),
+  Command.withSubcommands([noteAdd, noteApply, noteList, noteRemove, noteClear]),
+);
 
-    await removeNote(notes, id);
-    return console.log(`removed ${id}`);
-  }
+const openBrowser = (url: string) =>
+  ChildProcessSpawner.ChildProcessSpawner.use((spawner) =>
+    spawner.exitCode(
+      process.platform === 'darwin'
+        ? ChildProcess.make('open', [url])
+        : process.platform === 'win32'
+          ? ChildProcess.make('cmd', ['/c', 'start', '', url])
+          : ChildProcess.make('xdg-open', [url]),
+    ),
+  ).pipe(Effect.ignore);
 
-  if (action === 'clear') {
-    const count = await clearNotes(notes, values.file);
-    return console.log(`cleared ${count} notes`);
-  }
+const sidediff = Command.make(
+  'sidediff',
+  {
+    range: Argument.String('range').pipe(Argument.variadic()),
+    port: Flag.Int('port').pipe(Flag.withDefault(4977)),
+    host: Flag.String('host').pipe(Flag.withDefault('127.0.0.1')),
+    open: Flag.Boolean('open').pipe(Flag.withDefault(true)),
+    watch: Flag.Boolean('watch').pipe(Flag.withDefault(true)),
+  },
+  ({ range, port, host, open, watch }) =>
+    Effect.gen(function* () {
+      const chosen = yield* freePort(port, host);
+      const url = `http://${host}:${chosen}`;
 
-  throw new Error(`unknown note command: ${action ?? '(none)'}\n\n${usage}`);
-};
+      yield* Layer.launch(
+        serverLayer({ range, port: chosen, host, watch }).pipe(
+          Layer.merge(
+            Layer.effectDiscard(
+              Effect.andThen(
+                Console.log(`sidediff: ${url}  (${watch ? 'watching for changes' : 'watch off'})`),
+                open ? openBrowser(url) : Effect.void,
+              ),
+            ),
+          ),
+        ),
+      );
+    }),
+).pipe(
+  Command.withDescription('GitHub-style diff review in the browser, with a live notes column'),
+  Command.withSubcommands([note, show, highlight, explain, say, clear, tour, next, back, goto, where, listen]),
+);
 
-const serveCommand = async (args: readonly string[]) => {
-  const { values, positionals } = parseArgs({
-    args: [...args],
-    allowPositionals: true,
-    strict: false,
-    options: {
-      port: { type: 'string', default: '4977' },
-      host: { type: 'string', default: '127.0.0.1' },
-      'no-open': { type: 'boolean' },
-      'no-watch': { type: 'boolean' },
-      help: { type: 'boolean', short: 'h' },
-    },
-  });
+const AppLayer = Notes.layer.pipe(
+  Layer.provideMerge(Repo.layer),
+  Layer.provideMerge(Git.layer),
+  Layer.provideMerge(NodeServices.layer),
+);
 
-  if (values.help) return console.log(usage);
-
-  const { root, notes, state } = await locate();
-  const watchMode = values['no-watch'] !== true;
-  const server = await serve({
-    root,
-    notes,
-    state,
-    range: positionals.map(String),
-    port: Number(values.port),
-    host: String(values.host),
-    watch: watchMode,
-  });
-  const url = `http://${String(values.host)}:${server.port}`;
-
-  console.log(`sidediff: ${url}  (${watchMode ? 'watching for changes' : 'watch off'})`);
-
-  if (values['no-open'] !== true) {
-    const { default: open } = await import('open');
-    await open(url);
-  }
-
-  process.on('SIGINT', () => {
-    server.close();
-    process.exit(0);
-  });
-};
-
-const main = async () => {
-  const [first, ...rest] = process.argv.slice(2);
-
-  if (first === 'note') return noteCommand(rest);
-  if (first !== undefined && ['show', 'highlight', 'explain', 'say', 'clear', 'tour', 'next', 'back', 'goto', 'where', 'listen'].includes(first))
-    return controlCommand(first, rest);
-
-  return serveCommand(first === undefined ? [] : [first, ...rest]);
-};
-
-main().catch((error: unknown) => {
-  process.stderr.write(`sidediff: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
-});
+Command.run(sidediff, { version: '0.2.0' }).pipe(Effect.provide(AppLayer), NodeRuntime.runMain);

@@ -1,24 +1,4 @@
-export interface Note {
-  readonly id: string;
-  readonly filePath: string;
-  readonly side: 'additions' | 'deletions';
-  readonly line: number;
-  readonly summary: string;
-  readonly rationale?: string;
-  readonly author: string;
-  readonly createdAt: string;
-}
-
-export interface Snapshot {
-  readonly repo: string;
-  readonly branch: string;
-  readonly range: readonly string[];
-  readonly patch: string;
-  readonly notes: readonly Note[];
-  readonly version: string;
-  readonly watching: boolean;
-  readonly updatedAt: string;
-}
+export type { Note, Snapshot } from '../src/protocol';
 
 export interface FilePatch {
   readonly path: string;

@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "lib": ["ESNext", "DOM", "DOM.Iterable"]
   },
-  "include": ["web"]
+  "include": ["web", "src/protocol.ts"]
 }
