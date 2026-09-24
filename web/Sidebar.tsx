@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { FilePatch, Note } from './patch';
 import type { TreeNode } from './tree';
@@ -15,15 +15,23 @@ const Node = ({
   depth,
   notesByFile,
   isViewed,
+  currentFile,
   onSelect,
 }: {
   node: TreeNode;
   depth: number;
   notesByFile: Record<string, readonly Note[]>;
   isViewed: (file: FilePatch) => boolean;
+  currentFile: string | null;
   onSelect: (path: string) => void;
 }) => {
   const [open, setOpen] = useState(true);
+  const ref = useRef<HTMLButtonElement | null>(null);
+  const isCurrent = node.kind === 'file' && node.file.path === currentFile;
+
+  useEffect(() => {
+    if (isCurrent) ref.current?.scrollIntoView({ block: 'nearest' });
+  }, [isCurrent]);
   const indent = { paddingLeft: 8 + depth * 14 };
 
   if (node.kind === 'file') {
@@ -31,7 +39,9 @@ const Node = ({
 
     return (
       <button
-        className={isViewed(node.file) ? 'tree-file viewed' : 'tree-file'}
+        ref={ref}
+        aria-current={isCurrent ? 'true' : undefined}
+        className={['tree-file', isViewed(node.file) ? 'viewed' : '', isCurrent ? 'current' : ''].join(' ').trim()}
         style={indent}
         title={node.file.path}
         onClick={() => onSelect(node.file.path)}
@@ -59,6 +69,7 @@ const Node = ({
             depth={depth + 1}
             notesByFile={notesByFile}
             isViewed={isViewed}
+            currentFile={currentFile}
             onSelect={onSelect}
           />
         ))}
@@ -72,6 +83,7 @@ export const Sidebar = ({
   onFilter,
   notesByFile,
   isViewed,
+  currentFile,
   onSelect,
 }: {
   tree: readonly TreeNode[];
@@ -79,6 +91,7 @@ export const Sidebar = ({
   onFilter: (value: string) => void;
   notesByFile: Record<string, readonly Note[]>;
   isViewed: (file: FilePatch) => boolean;
+  currentFile: string | null;
   onSelect: (path: string) => void;
 }) => (
   <aside className="sidebar">
@@ -96,6 +109,7 @@ export const Sidebar = ({
           depth={0}
           notesByFile={notesByFile}
           isViewed={isViewed}
+          currentFile={currentFile}
           onSelect={onSelect}
         />
       ))}

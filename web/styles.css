@@ -651,3 +651,13 @@ kbd {
   flex-wrap: nowrap;
   overflow-x: auto;
 }
+
+.tree-file.current {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.tree-file.current .tree-name {
+  color: var(--text-strong);
+  font-weight: 600;
+}

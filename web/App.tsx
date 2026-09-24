@@ -63,6 +63,30 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
   const [openOverrides, setOpenOverrides] = useState<ReadonlyMap<string, boolean>>(new Map());
   const [activeNote, setActiveNote] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
+  const [currentFile, setCurrentFile] = useState<string | null>(null);
+
+  useEffect(() => {
+    const main = document.querySelector('main.files');
+    if (main === null) return;
+
+    const frames = new Map<'f', number>();
+    const track = () => {
+      const top = main.getBoundingClientRect().top;
+      const section = [...main.querySelectorAll<HTMLElement>('section.file')].find(
+        (item) => item.getBoundingClientRect().bottom > top + 48,
+      );
+      setCurrentFile(section?.id.replace(/^file-/, '') ?? null);
+    };
+    const onScroll = () => {
+      const pending = frames.get('f');
+      if (pending !== undefined) cancelAnimationFrame(pending);
+      frames.set('f', requestAnimationFrame(track));
+    };
+
+    track();
+    main.addEventListener('scroll', onScroll, { passive: true });
+    return () => main.removeEventListener('scroll', onScroll);
+  }, []);
 
   const allFiles = useMemo(() => splitPatch(snapshot.patch), [snapshot.patch]);
   const tree = useMemo(
@@ -331,6 +355,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
         onFilter={setFilter}
         notesByFile={notesByFile}
         isViewed={isViewed}
+        currentFile={currentFile}
         onSelect={jumpTo}
       />
       <main className="files">
