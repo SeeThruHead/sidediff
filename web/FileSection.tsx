@@ -213,6 +213,7 @@ export const FileSection = memo(function FileSection({
   diffStyle,
   palette,
   showNotes,
+  showComments,
   collapsed,
   viewed,
   activeNote,
@@ -227,6 +228,7 @@ export const FileSection = memo(function FileSection({
   diffStyle: 'split' | 'unified';
   palette: PaletteName;
   showNotes: boolean;
+  showComments: boolean;
   collapsed: boolean;
   viewed: boolean;
   activeNote: string | null;
@@ -307,16 +309,18 @@ export const FileSection = memo(function FileSection({
             metadata: { id: note.id, type: 'anchor' as const },
           }))
         : []),
-      ...comments.map((note) => ({
-        side: note.side,
-        lineNumber: note.line,
-        metadata: { id: note.id, type: 'comment' as const },
-      })),
+      ...(showComments
+        ? comments.map((note) => ({
+            side: note.side,
+            lineNumber: note.line,
+            metadata: { id: note.id, type: 'comment' as const },
+          }))
+        : []),
       ...(composer === null
         ? []
         : [{ side: composer.side, lineNumber: composer.line, metadata: { id: COMPOSER, type: 'composer' as const } }]),
     ],
-    [annotations, comments, showNotes, composer],
+    [annotations, comments, showNotes, showComments, composer],
   );
 
   const measureRef = useCallback((id: string, element: HTMLElement | null) => {

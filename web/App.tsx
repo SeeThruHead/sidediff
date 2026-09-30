@@ -49,6 +49,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
   const { isViewed, setViewed } = useViewed(snapshot.repo);
   const [diffStyle, setDiffStyle] = useState<'split' | 'unified'>('split');
   const [showNotes, setShowNotes] = useState(true);
+  const [showComments, setShowComments] = useState(true);
   const [openOverrides, setOpenOverrides] = useState<ReadonlyMap<string, boolean>>(new Map());
   const [activeNote, setActiveNote] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
@@ -255,6 +256,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
       if (event.key === 'p') stepNote(-1);
       if (event.key === 's') setDiffStyle((style) => (style === 'split' ? 'unified' : 'split'));
       if (event.key === 'a') setShowNotes((visible) => !visible);
+      if (event.key === 'i') setShowComments((visible) => !visible);
       if (event.key === 'Escape') guide.dismiss();
       if (event.key === ']' && guide.state.tour) guide.goTo(guide.state.tour.index + 1);
       if (event.key === '[' && guide.state.tour) guide.goTo(guide.state.tour.index - 1);
@@ -319,6 +321,9 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
           <button onClick={() => setShowNotes(!showNotes)}>
             {showNotes ? 'Hide notes' : 'Show notes'} <kbd>a</kbd>
           </button>
+          <button onClick={() => setShowComments(!showComments)}>
+            {showComments ? 'Hide comments' : 'Show comments'} <kbd>i</kbd>
+          </button>
           <button onClick={() => stepNote(-1)}>
             ↑ <kbd>p</kbd>
           </button>
@@ -358,6 +363,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
             diffStyle={diffStyle}
             palette={palette}
             showNotes={showNotes}
+            showComments={showComments}
             collapsed={!isOpen(file)}
             viewed={isViewed(file)}
             activeNote={activeNote}
