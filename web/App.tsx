@@ -14,6 +14,9 @@ import { parseIntent } from './intents';
 import { connectedAtom, reportView, sendUtterance, snapshotAtom } from './client';
 import { useVoice } from './voice';
 
+const isTyping = (target: EventTarget | null) =>
+  target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+
 const useSnapshot = () => {
   const snapshot = useAtomValue(snapshotAtom);
   const connected = useAtomValue(connectedAtom);
@@ -246,7 +249,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement) return;
+      if (isTyping(event.target)) return;
 
       if (event.key === 'n') stepNote(1);
       if (event.key === 'p') stepNote(-1);

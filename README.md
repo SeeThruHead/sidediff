@@ -51,6 +51,21 @@ sidediff note clear [--file src/app.ts]
 
 Notes are stored one file per note under `<git dir>/sidediff/notes`, so concurrent writers never collide and nothing is committed to the repository.
 
+## Review threads
+
+Hover a line in the diff and press `+` to start a thread on it. Every note is a thread: it lists its replies and has a reply box and Resolve. Threads, replies and resolved state are saved with the note, so they survive restarts.
+
+The agent side talks to the running server, so the page updates the moment it replies:
+
+```sh
+sidediff threads [--after <seq>] [--wait 600] [--all]   # blocks until the reviewer starts a thread, replies or resolves
+sidediff thread <id>                                    # print a thread: the first comment and every reply
+sidediff reply <id> "text"                              # reply as the agent
+sidediff resolve <id> [--reopen]
+```
+
+`sidediff threads` prints `seq  kind  note-id  file:line  author: text` and skips the agent's own events unless `--all` is passed. Pass the last `seq` as `--after` to pick up where you left off. Threads started in the page are attributed to `git config user.name`.
+
 ## Guided tours and conversation
 
 A running server accepts commands that drive the open page, so a person or an agent can walk someone through a change:

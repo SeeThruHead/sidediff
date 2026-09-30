@@ -1,6 +1,6 @@
 import { Context, DateTime, Effect, FileSystem, Layer, Option, Path, Random, Schema } from 'effect';
 
-import { Note, type NoteInput } from './protocol.js';
+import { Note, type NoteInput, NoteMissing } from './protocol.js';
 import { Repo } from './repo.js';
 
 export class NoteWithoutLine extends Schema.TaggedError<NoteWithoutLine>()('NoteWithoutLine', {
@@ -30,6 +30,8 @@ export class Notes extends Context.Service<
     readonly list: Effect.Effect<readonly Note[]>;
     readonly remove: (id: string) => Effect.Effect<void, NotesUnwritable>;
     readonly clear: (filePath: string | undefined) => Effect.Effect<number, NotesUnwritable>;
+    readonly reply: (id: string, author: string, body: string) => Effect.Effect<Note, NoteMissing | NotesUnwritable>;
+    readonly resolve: (id: string, resolved: boolean) => Effect.Effect<Note, NoteMissing | NotesUnwritable>;
   }
 >()('sidediff/Notes') {
   static readonly layer = Layer.effect(
@@ -111,7 +113,32 @@ export class Notes extends Context.Service<
           return doomed.length;
         });
 
-      return { add, list, remove, clear };
+      const read = (id: string) =>
+        fs.readFileString(fileOf(id)).pipe(
+          Effect.map(decodeNote),
+          Effect.orElseSucceed(() => Option.none<Note>()),
+          Effect.flatMap(Option.match({ onNone: () => Effect.fail(new NoteMissing({ id })), onSome: Effect.succeed })),
+        );
+
+      const save = (note: Note) =>
+        fs.writeFileString(fileOf(note.id), JSON.stringify(note)).pipe(Effect.mapError(unwritable), Effect.as(note));
+
+      const reply = Effect.fn('Notes.reply')(function* (id: string, author: string, body: string) {
+        const note = yield* read(id);
+        const replyId = yield* newId;
+        const now = yield* DateTime.now;
+        const entry = { id: replyId, author, body, createdAt: DateTime.formatIso(now) };
+
+        return yield* save({ ...note, replies: [...(note.replies ?? []), entry] });
+      });
+
+      const resolve = Effect.fn('Notes.resolve')(function* (id: string, resolved: boolean) {
+        const note = yield* read(id);
+
+        return yield* save({ ...note, resolved });
+      });
+
+      return { add, list, remove, clear, reply, resolve };
     }),
   );
 }

@@ -179,6 +179,7 @@ const noteAdd = Command.make(
         { filePath: file, summary, ...defined({ newLine, oldLine, rationale, author }) },
       ]);
 
+      yield* nudgeServer;
       yield* Console.log(`added ${note?.id} on ${note?.filePath}:${note?.line}`);
     }),
 ).pipe(Command.withDescription('add one note'));
@@ -192,6 +193,7 @@ const noteApply = Command.make('apply', {}, () =>
     const batch = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(NoteBatch))(text);
     const added = yield* notes.add('comments' in batch ? batch.comments : batch);
 
+    yield* nudgeServer;
     yield* Console.log(`added ${added.length} notes`);
   }),
 ).pipe(Command.withDescription('add a batch from stdin: {"comments":[{filePath,newLine|oldLine,summary,...}]}'));
@@ -210,10 +212,92 @@ const noteList = Command.make(
     }),
 ).pipe(Command.withDescription('list notes'));
 
+const nudgeServer = Client.use((client) => client.Refresh()).pipe(withClient, Effect.ignore);
+
+const eventLine = (event: {
+  readonly seq: number;
+  readonly kind: string;
+  readonly noteId: string;
+  readonly filePath: string;
+  readonly line: number;
+  readonly author: string;
+  readonly body: string;
+}) => `${event.seq}\t${event.kind}\t${event.noteId}\t${event.filePath}:${event.line}\t${event.author}: ${event.body}`;
+
+const threads = Command.make(
+  'threads',
+  {
+    after: Flag.Int('after').pipe(Flag.optional, Flag.map(Option.getOrUndefined)),
+    wait: Flag.Int('wait').pipe(Flag.withDefault(600)),
+    all: Flag.Boolean('all').pipe(Flag.withDefault(false)),
+  },
+  ({ after, wait, all }) =>
+    Effect.gen(function* () {
+      const client = yield* Client;
+
+      const next = yield* client.Threads(after === undefined ? {} : { after }).pipe(
+        Stream.map((batch) => batch.filter((event) => all || event.author !== 'agent')),
+        Stream.filter((batch) => batch.length > 0),
+        Stream.take(1),
+        Stream.runHead,
+        Effect.timeoutOption(Duration.seconds(wait)),
+        Effect.map(Option.flatten),
+      );
+
+      yield* Effect.forEach(Option.getOrElse(next, () => []), (event) => Console.log(eventLine(event)), {
+        discard: true,
+      });
+    }).pipe(withClient),
+).pipe(
+  Command.withDescription(
+    'wait for the next review thread, reply or resolve from the reviewer; prints seq, kind, note id, file:line and text',
+  ),
+);
+
+const thread = Command.make('thread', { id: Argument.String('id') }, ({ id }) =>
+  Effect.gen(function* () {
+    const notes = yield* Notes;
+    const found = (yield* notes.list).find((note) => note.id === id);
+
+    if (found === undefined) return yield* Console.error(`no note ${id}`);
+
+    yield* Console.log(`${found.filePath}:${found.line}${found.resolved === true ? '  (resolved)' : ''}`);
+    yield* Console.log(`${found.author}: ${found.summary}`);
+    yield* Effect.forEach(found.replies ?? [], (entry) => Console.log(`${entry.author}: ${entry.body}`), {
+      discard: true,
+    });
+  }),
+).pipe(Command.withDescription('print a thread: the first comment and every reply'));
+
+const reply = Command.make(
+  'reply',
+  {
+    id: Argument.String('id'),
+    text: Argument.String('text').pipe(Argument.variadic({ min: 1 })),
+    author: Flag.String('author').pipe(Flag.withDefault('agent')),
+  },
+  ({ id, text, author }) =>
+    Client.use((client) => client.Reply({ noteId: id, body: text.join(' '), author })).pipe(
+      Effect.flatMap((note) => Console.log(`replied on ${note.id} (${note.replies?.length ?? 0} replies)`)),
+      withClient,
+    ),
+).pipe(Command.withDescription('reply to a review thread; it appears in the browser immediately'));
+
+const resolve = Command.make(
+  'resolve',
+  { id: Argument.String('id'), reopen: Flag.Boolean('reopen').pipe(Flag.withDefault(false)) },
+  ({ id, reopen }) =>
+    Client.use((client) => client.Resolve({ noteId: id, resolved: !reopen, author: 'agent' })).pipe(
+      Effect.flatMap((note) => Console.log(`${note.id} ${note.resolved === true ? 'resolved' : 'reopened'}`)),
+      withClient,
+    ),
+).pipe(Command.withDescription('resolve a review thread, or reopen it with --reopen'));
+
 const noteRemove = Command.make('rm', { id: Argument.String('id') }, ({ id }) =>
   Effect.gen(function* () {
     const notes = yield* Notes;
     yield* notes.remove(id);
+    yield* nudgeServer;
     yield* Console.log(`removed ${id}`);
   }),
 ).pipe(Command.withDescription('remove a note'));
@@ -222,6 +306,7 @@ const noteClear = Command.make('clear', { file: optionalText('file') }, ({ file 
   Effect.gen(function* () {
     const notes = yield* Notes;
     const count = yield* notes.clear(file);
+    yield* nudgeServer;
     yield* Console.log(`cleared ${count} notes`);
   }),
 ).pipe(Command.withDescription('remove every note, or every note on one file'));
@@ -271,7 +356,24 @@ const sidediff = Command.make(
     }),
 ).pipe(
   Command.withDescription('GitHub-style diff review in the browser, with a live notes column'),
-  Command.withSubcommands([note, show, highlight, explain, say, clear, tour, next, back, goto, where, listen]),
+  Command.withSubcommands([
+    note,
+    show,
+    highlight,
+    explain,
+    say,
+    clear,
+    tour,
+    next,
+    back,
+    goto,
+    where,
+    listen,
+    threads,
+    thread,
+    reply,
+    resolve,
+  ]),
 );
 
 const AppLayer = Notes.layer.pipe(

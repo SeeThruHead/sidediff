@@ -23,7 +23,19 @@ import { RpcSerialization, RpcServer } from 'effect/rpc';
 
 import { Git } from './git.js';
 import { Notes } from './notes.js';
-import { type Command, FileMissing, SidediffRpcs, type Snapshot, type Utterance, type View } from './protocol.js';
+import {
+  type Command,
+  FileMissing,
+  type Note,
+  NoteMissing,
+  NoteUnsaved,
+  type Side,
+  SidediffRpcs,
+  type Snapshot,
+  type ThreadEvent,
+  type Utterance,
+  type View,
+} from './protocol.js';
 import { Repo } from './repo.js';
 
 export class ServeOptions extends Context.Service<
@@ -62,6 +74,16 @@ export class Review extends Context.Service<
     readonly view: Effect.Effect<View | null>;
     readonly utter: (text: string, handled: boolean) => Effect.Effect<Utterance>;
     readonly listen: (after: number | undefined) => Stream.Stream<readonly Utterance[]>;
+    readonly startThread: (input: {
+      readonly filePath: string;
+      readonly side: Side;
+      readonly line: number;
+      readonly body: string;
+    }) => Effect.Effect<Note, NoteUnsaved>;
+    readonly reply: (id: string, body: string, author: string | undefined) => Effect.Effect<Note, NoteMissing | NoteUnsaved>;
+    readonly resolve: (id: string, resolved: boolean, author: string | undefined) => Effect.Effect<Note, NoteMissing | NoteUnsaved>;
+    readonly threads: (after: number | undefined) => Stream.Stream<readonly ThreadEvent[]>;
+    readonly refresh: Effect.Effect<void>;
   }
 >()('sidediff/Review') {
   static readonly layer = Layer.effect(
@@ -166,7 +188,95 @@ export class Review extends Context.Service<
           }),
         );
 
+      const reviewer = yield* git.run(repo.root, ['config', 'user.name']).pipe(
+        Effect.map((name) => name.trim()),
+        Effect.map((name) => (name === '' ? 'reviewer' : name)),
+        Effect.orElseSucceed(() => 'reviewer'),
+      );
+
+      const events = yield* Ref.make<readonly ThreadEvent[]>([]);
+      const threadEvents = yield* PubSub.unbounded<ThreadEvent>();
+
+      const unsaved = (error: { readonly message: string }) => new NoteUnsaved({ reason: error.message });
+
+      const record = Effect.fnUntraced(function* (
+        kind: ThreadEvent['kind'],
+        note: Note,
+        author: string,
+        body: string,
+      ) {
+        const now = yield* DateTime.now;
+        const event = yield* Ref.modify(events, (all) => {
+          const next: ThreadEvent = {
+            seq: all.length + 1,
+            kind,
+            noteId: note.id,
+            filePath: note.filePath,
+            side: note.side,
+            line: note.line,
+            author,
+            body,
+            at: DateTime.formatIso(now),
+          };
+          return [next, [...all, next]];
+        });
+
+        yield* PubSub.publish(threadEvents, event);
+        yield* refresh;
+
+        return note;
+      });
+
+      const startThread = Effect.fn('Review.startThread')(function* (input: {
+        readonly filePath: string;
+        readonly side: Side;
+        readonly line: number;
+        readonly body: string;
+      }) {
+        const lineKey = input.side === 'deletions' ? { oldLine: input.line } : { newLine: input.line };
+        const [note] = yield* notes
+          .add([{ filePath: input.filePath, ...lineKey, summary: input.body, author: reviewer }])
+          .pipe(Effect.mapError(unsaved));
+
+        if (note === undefined) return yield* new NoteUnsaved({ reason: 'the thread was not created' });
+
+        return yield* record('thread', note, reviewer, input.body);
+      });
+
+      const reply = Effect.fn('Review.reply')(function* (id: string, body: string, author: string | undefined) {
+        const who = author ?? reviewer;
+        const note = yield* notes.reply(id, who, body).pipe(Effect.catchTag('NotesUnwritable', (error) => Effect.fail(unsaved(error))));
+
+        return yield* record('reply', note, who, body);
+      });
+
+      const resolve = Effect.fn('Review.resolve')(function* (id: string, resolved: boolean, author: string | undefined) {
+        const who = author ?? reviewer;
+        const note = yield* notes.resolve(id, resolved).pipe(Effect.catchTag('NotesUnwritable', (error) => Effect.fail(unsaved(error))));
+
+        return yield* record(resolved ? 'resolved' : 'reopened', note, who, '');
+      });
+
+      const threads = (after: number | undefined) =>
+        Stream.unwrap(
+          Effect.map(Ref.get(events), (all) => {
+            const since = after ?? all.length;
+            const pending = all.filter((event) => event.seq > since);
+            const live = Stream.fromPubSub(threadEvents).pipe(
+              Stream.filter((event) => event.seq > since),
+              Stream.map((event) => [event]),
+            );
+
+            return pending.length > 0 ? Stream.concat(Stream.make(pending), live) : live;
+          }),
+        );
+
       return {
+        refresh,
+        startThread,
+        reply,
+        resolve,
+        threads,
         snapshots: SubscriptionRef.changes(snapshot),
         file,
         send: (command) => Effect.andThen(PubSub.publish(commands, command), Ref.get(watchers)),
@@ -200,6 +310,11 @@ const RpcHandlers = SidediffRpcs.toLayer(
       View: () => review.view,
       Utter: ({ text, handled }) => review.utter(text, handled),
       Listen: ({ after }) => review.listen(after),
+      StartThread: (input) => review.startThread(input),
+      Reply: ({ noteId, body, author }) => review.reply(noteId, body, author),
+      Resolve: ({ noteId, resolved, author }) => review.resolve(noteId, resolved, author),
+      Threads: ({ after }) => review.threads(after),
+      Refresh: () => review.refresh,
     });
   }),
 );

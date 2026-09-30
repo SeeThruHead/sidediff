@@ -1,7 +1,7 @@
 import { PatchDiff } from '@pierre/diffs/react';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type KeyboardEvent, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { readFile } from './client';
+import { readFile, replyToThread, resolveThread, startThread } from './client';
 import type { FilePatch, Note } from './patch';
 import type { PaletteName } from './themes';
 import { diffCss, palettes } from './themes';
@@ -50,8 +50,12 @@ const DiffStat = ({ additions, deletions }: { additions: number; deletions: numb
   );
 };
 
+const COMPOSER = 'composer';
+
+type Composer = { readonly side: 'additions' | 'deletions'; readonly line: number };
+
 const place = (
-  notes: readonly Note[],
+  notes: readonly { readonly id: string }[],
   anchorTop: (id: string) => number | null,
   heightOf: (id: string) => number,
 ): Placement[] =>
@@ -64,6 +68,103 @@ const place = (
 
       return [...placed, { id, top: Math.max(desired, floor) }];
     }, []);
+
+const submitOnMetaEnter = (submit: () => void) => (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  if (event.key !== 'Enter') return;
+  if (!(event.metaKey || event.ctrlKey)) return;
+
+  event.preventDefault();
+  submit();
+};
+
+const Thread = ({ note }: { note: Note }) => {
+  const [draft, setDraft] = useState('');
+  const replies = note.replies ?? [];
+  const send = () => {
+    if (draft.trim() === '') return;
+
+    replyToThread(note.id, draft.trim());
+    setDraft('');
+  };
+
+  return (
+    <div className={note.resolved === true ? 'thread resolved' : 'thread'} onClick={(event) => event.stopPropagation()}>
+      {replies.map((entry) => (
+        <div key={entry.id} className="reply">
+          <span className="note-author">{entry.author}</span>
+          <p>{entry.body}</p>
+        </div>
+      ))}
+      <textarea
+        className="reply-input"
+        placeholder="Reply"
+        rows={1}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={submitOnMetaEnter(send)}
+      />
+      <div className="thread-actions">
+        <button disabled={draft.trim() === ''} onClick={send}>
+          Reply
+        </button>
+        <button onClick={() => resolveThread(note.id, note.resolved !== true)}>
+          {note.resolved === true ? 'Reopen' : 'Resolve'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const ComposerCard = ({
+  composer,
+  top,
+  measureRef,
+  onSubmit,
+  onCancel,
+}: {
+  composer: Composer;
+  top: number;
+  measureRef: (id: string, element: HTMLElement | null) => void;
+  onSubmit: (body: string) => void;
+  onCancel: () => void;
+}) => {
+  const [draft, setDraft] = useState('');
+  const submit = () => {
+    if (draft.trim() === '') return;
+
+    onSubmit(draft.trim());
+  };
+
+  return (
+    <article ref={(element) => measureRef(COMPOSER, element)} className="note composer" style={{ top }}>
+      <header>
+        <span className="note-author">new thread</span>
+        <span className="note-line">
+          {composer.side === 'deletions' ? 'L' : 'R'}
+          {composer.line}
+        </span>
+      </header>
+      <textarea
+        autoFocus
+        className="reply-input"
+        placeholder="Leave a comment"
+        rows={3}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') onCancel();
+          submitOnMetaEnter(submit)(event);
+        }}
+      />
+      <div className="thread-actions">
+        <button disabled={draft.trim() === ''} onClick={submit}>
+          Comment
+        </button>
+        <button onClick={onCancel}>Cancel</button>
+      </div>
+    </article>
+  );
+};
 
 const NoteCard = ({
   note,
@@ -94,6 +195,7 @@ const NoteCard = ({
     </header>
     <h4>{note.summary}</h4>
     {note.rationale && note.rationale !== note.summary && <p>{note.rationale}</p>}
+    <Thread note={note} />
   </article>
 );
 
@@ -130,6 +232,7 @@ export const FileSection = memo(function FileSection({
   const columnRef = useRef<HTMLDivElement | null>(null);
   const cards = useRef(new Map<string, HTMLElement>());
   const [placements, setPlacements] = useState<readonly Placement[]>([]);
+  const [composer, setComposer] = useState<Composer | null>(null);
   const [near, setNear] = useState(false);
   const bodyHeight = useRef<number | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -167,16 +270,29 @@ export const FileSection = memo(function FileSection({
       hunkSeparators: 'line-info' as const,
       expansionLineCount: 20,
       loadDiffFiles: () => loadSides(file),
+      enableGutterUtility: showNotes,
+      onGutterUtilityClick: (range: { end: number; side?: 'additions' | 'deletions' }) =>
+        setComposer({ side: range.side === 'deletions' ? 'deletions' : 'additions', line: range.end }),
     }),
-    [diffStyle, palette, file],
+    [diffStyle, palette, file, showNotes],
   );
 
   const lineAnnotations = useMemo(
     () =>
       showNotes
-        ? notes.map((note) => ({ side: note.side, lineNumber: note.line, metadata: { id: note.id } }))
+        ? [
+            ...notes.map((note) => ({ side: note.side, lineNumber: note.line, metadata: { id: note.id } })),
+            ...(composer === null
+              ? []
+              : [{ side: composer.side, lineNumber: composer.line, metadata: { id: COMPOSER } }]),
+          ]
         : [],
-    [notes, showNotes],
+    [notes, showNotes, composer],
+  );
+
+  const placed = useMemo(
+    () => (composer === null ? notes : [...notes, { id: COMPOSER }]),
+    [notes, composer],
   );
 
   const measureRef = useCallback((id: string, element: HTMLElement | null) => {
@@ -195,7 +311,7 @@ export const FileSection = memo(function FileSection({
       return anchor === null ? null : anchor.getBoundingClientRect().top - columnTop;
     };
     const heightOf = (id: string) => cards.current.get(id)?.offsetHeight ?? 64;
-    const next = place(notes, anchorTop, heightOf);
+    const next = place(placed, anchorTop, heightOf);
 
     setPlacements((current) =>
       current.length === next.length &&
@@ -203,7 +319,7 @@ export const FileSection = memo(function FileSection({
         ? current
         : next,
     );
-  }, [notes]);
+  }, [placed]);
 
   useLayoutEffect(() => {
     const section = sectionRef.current;
@@ -282,6 +398,18 @@ export const FileSection = memo(function FileSection({
           </div>
           {showNotes && (
             <div ref={columnRef} className="notes-column" style={{ minHeight: columnHeight }}>
+              {composer !== null && (
+                <ComposerCard
+                  composer={composer}
+                  top={topOf(COMPOSER)}
+                  measureRef={measureRef}
+                  onCancel={() => setComposer(null)}
+                  onSubmit={(body) => {
+                    startThread({ filePath: file.path, side: composer.side, line: composer.line, body });
+                    setComposer(null);
+                  }}
+                />
+              )}
               {notes.map((note) => (
                 <NoteCard
                   key={note.id}

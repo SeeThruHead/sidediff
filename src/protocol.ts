@@ -6,6 +6,14 @@ export type Side = typeof Side.Type;
 
 const Line = Schema.Int.check(Schema.isGreaterThan(0));
 
+export const Reply = Schema.Struct({
+  id: Schema.String,
+  author: Schema.String,
+  body: Schema.NonEmptyString,
+  createdAt: Schema.String,
+});
+export type Reply = typeof Reply.Type;
+
 export const Note = Schema.Struct({
   id: Schema.String,
   filePath: Schema.String,
@@ -15,6 +23,8 @@ export const Note = Schema.Struct({
   rationale: Schema.optionalKey(Schema.String),
   author: Schema.String,
   createdAt: Schema.String,
+  replies: Schema.optionalKey(Schema.Array(Reply)),
+  resolved: Schema.optionalKey(Schema.Boolean),
 });
 export type Note = typeof Note.Type;
 
@@ -101,6 +111,31 @@ export const Utterance = Schema.Struct({
 });
 export type Utterance = typeof Utterance.Type;
 
+export const ThreadEvent = Schema.Struct({
+  seq: Schema.Int,
+  kind: Schema.Literals(['thread', 'reply', 'resolved', 'reopened']),
+  noteId: Schema.String,
+  filePath: Schema.String,
+  side: Side,
+  line: Line,
+  author: Schema.String,
+  body: Schema.String,
+  at: Schema.String,
+});
+export type ThreadEvent = typeof ThreadEvent.Type;
+
+export class NoteMissing extends Schema.TaggedError<NoteMissing>()('NoteMissing', { id: Schema.String }) {
+  override get message() {
+    return `no note ${this.id}`;
+  }
+}
+
+export class NoteUnsaved extends Schema.TaggedError<NoteUnsaved>()('NoteUnsaved', { reason: Schema.String }) {
+  override get message() {
+    return this.reason;
+  }
+}
+
 export class FileMissing extends Schema.TaggedError<FileMissing>()('FileMissing', {
   side: Schema.Literals(['old', 'new']),
   path: Schema.String,
@@ -121,6 +156,27 @@ export const SidediffRpcs = RpcGroup.make(
   Rpc.make('Listen', {
     payload: { after: Schema.optionalKey(Schema.Int) },
     success: Schema.Array(Utterance),
+    stream: true,
+  }),
+  Rpc.make('StartThread', {
+    payload: { filePath: Schema.NonEmptyString, side: Side, line: Line, body: Schema.NonEmptyString },
+    success: Note,
+    error: NoteUnsaved,
+  }),
+  Rpc.make('Reply', {
+    payload: { noteId: Schema.NonEmptyString, body: Schema.NonEmptyString, author: Schema.optionalKey(Schema.String) },
+    success: Note,
+    error: Schema.Union([NoteMissing, NoteUnsaved]),
+  }),
+  Rpc.make('Resolve', {
+    payload: { noteId: Schema.NonEmptyString, resolved: Schema.Boolean, author: Schema.optionalKey(Schema.String) },
+    success: Note,
+    error: Schema.Union([NoteMissing, NoteUnsaved]),
+  }),
+  Rpc.make('Refresh', {}),
+  Rpc.make('Threads', {
+    payload: { after: Schema.optionalKey(Schema.Int) },
+    success: Schema.Array(ThreadEvent),
     stream: true,
   }),
 );

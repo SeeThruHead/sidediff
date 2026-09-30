@@ -512,6 +512,82 @@ kbd {
   line-height: 1.5;
 }
 
+.note.composer {
+  border-left-color: var(--accent);
+  cursor: default;
+  z-index: 2;
+}
+
+.thread {
+  margin-top: 8px;
+  cursor: default;
+}
+
+.thread .reply {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-muted);
+}
+
+.thread .reply p {
+  margin-top: 2px;
+}
+
+.thread .reply .note-author {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.reply-input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--canvas);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  resize: vertical;
+}
+
+.reply-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.thread-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.thread-actions button {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.thread-actions button:first-child:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text-strong);
+}
+
+.thread-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.note:has(.thread.resolved) {
+  opacity: 0.55;
+}
+
 .empty {
   padding: 48px;
   text-align: center;

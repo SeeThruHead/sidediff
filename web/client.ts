@@ -82,6 +82,17 @@ export const interimAtom = Atom.make('');
 
 const reportViewAtom = SidediffClient.mutation('ReportView');
 const utterAtom = SidediffClient.mutation('Utter');
+const startThreadAtom = SidediffClient.mutation('StartThread');
+const replyAtom = SidediffClient.mutation('Reply');
+const resolveAtom = SidediffClient.mutation('Resolve');
+
+export const startThread = (input: { filePath: string; side: Side; line: number; body: string }) =>
+  registry.set(startThreadAtom, { payload: input });
+
+export const replyToThread = (noteId: string, body: string) => registry.set(replyAtom, { payload: { noteId, body } });
+
+export const resolveThread = (noteId: string, resolved: boolean) =>
+  registry.set(resolveAtom, { payload: { noteId, resolved } });
 
 export const reportView = (view: View) =>
   registry.set(reportViewAtom, { payload: { view } });
