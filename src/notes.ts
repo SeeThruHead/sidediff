@@ -36,6 +36,7 @@ export class Notes extends Context.Service<
     readonly clear: (filePath: string | undefined) => Effect.Effect<number, NotesUnwritable>;
     readonly reply: (id: string, author: string, body: string) => Effect.Effect<Note, NoteMissing | NotesUnwritable>;
     readonly resolve: (id: string, resolved: boolean) => Effect.Effect<Note, NoteMissing | NotesUnwritable>;
+    readonly toComment: (id: string) => Effect.Effect<Note, NoteMissing | NotesUnwritable>;
   }
 >()('sidediff/Notes') {
   static readonly layer = Layer.effect(
@@ -105,6 +106,7 @@ export class Notes extends Context.Service<
           ...(input.rationale === undefined ? {} : { rationale: input.rationale }),
           author: input.author ?? 'agent',
           createdAt: DateTime.formatIso(now),
+          ...(input.kind === undefined ? {} : { kind: input.kind }),
         } satisfies Note;
       });
 
@@ -147,11 +149,14 @@ export class Notes extends Context.Service<
         change(id, (note) =>
           Effect.map(Effect.all([newId, DateTime.now]), ([replyId, now]) => ({
             ...note,
+            kind: 'comment' as const,
             replies: [...(note.replies ?? []), { id: replyId, author, body, createdAt: DateTime.formatIso(now) }],
           })),
         );
 
       const resolve = (id: string, resolved: boolean) => change(id, (note) => Effect.succeed({ ...note, resolved }));
+
+      const toComment = (id: string) => change(id, (note) => Effect.succeed({ ...note, kind: 'comment' as const }));
 
       return Notes.of({
         list: SubscriptionRef.get(state),
@@ -161,6 +166,7 @@ export class Notes extends Context.Service<
         clear,
         reply,
         resolve,
+        toComment,
       });
     }),
   );

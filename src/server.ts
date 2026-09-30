@@ -83,6 +83,7 @@ export class Review extends Context.Service<
     readonly reply: (id: string, body: string, author: string | undefined) => Effect.Effect<Note, NoteMissing | NoteUnsaved>;
     readonly resolve: (id: string, resolved: boolean, author: string | undefined) => Effect.Effect<Note, NoteMissing | NoteUnsaved>;
     readonly threads: (after: number | undefined) => Stream.Stream<readonly ThreadEvent[]>;
+    readonly toComment: (id: string) => Effect.Effect<Note, NoteMissing | NoteUnsaved>;
     readonly refresh: Effect.Effect<void>;
   }
 >()('sidediff/Review') {
@@ -232,7 +233,7 @@ export class Review extends Context.Service<
       }) {
         const lineKey = input.side === 'deletions' ? { oldLine: input.line } : { newLine: input.line };
         const [note] = yield* notes
-          .add([{ filePath: input.filePath, ...lineKey, summary: input.body, author: reviewer }])
+          .add([{ filePath: input.filePath, ...lineKey, summary: input.body, author: reviewer, kind: 'comment' }])
           .pipe(Effect.mapError(unsaved));
 
         if (note === undefined) return yield* new NoteUnsaved({ reason: 'the thread was not created' });
@@ -254,6 +255,14 @@ export class Review extends Context.Service<
         return yield* record(resolved ? 'resolved' : 'reopened', note, who, '');
       });
 
+      const toComment = Effect.fn('Review.toComment')(function* (id: string) {
+        const note = yield* notes
+          .toComment(id)
+          .pipe(Effect.catchTag('NotesUnwritable', (error) => Effect.fail(unsaved(error))));
+
+        return yield* record('converted', note, reviewer, note.summary);
+      });
+
       const threads = (after: number | undefined) =>
         Stream.unwrap(
           Effect.map(Ref.get(events), (all) => {
@@ -269,6 +278,7 @@ export class Review extends Context.Service<
         );
 
       return {
+        toComment,
         refresh,
         startThread,
         reply,
@@ -313,6 +323,7 @@ const RpcHandlers = SidediffRpcs.toLayer(
       StartThread: (input) => review.startThread(input),
       Reply: ({ noteId, body, author }) => review.reply(noteId, body, author),
       Resolve: ({ noteId, resolved, author }) => review.resolve(noteId, resolved, author),
+      ToComment: ({ noteId }) => review.toComment(noteId),
       Threads: ({ after }) => review.threads(after),
       Refresh: () => review.refresh,
       ListNotes: () => notes.list,

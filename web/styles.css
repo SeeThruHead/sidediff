@@ -512,80 +512,110 @@ kbd {
   line-height: 1.5;
 }
 
-.note.composer {
-  border-left-color: var(--accent);
-  cursor: default;
-  z-index: 2;
+.inline-thread {
+  box-sizing: border-box;
+  max-width: 920px;
+  margin: 8px 16px 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13.5px;
+  line-height: 1.55;
+  white-space: normal;
 }
 
-.thread {
-  margin-top: 8px;
-  cursor: default;
+.inline-thread.resolved {
+  opacity: 0.6;
 }
 
-.thread .reply {
-  margin-top: 6px;
-  padding-top: 6px;
+.inline-thread .comment + .comment {
+  margin-top: 10px;
+  padding-top: 10px;
   border-top: 1px solid var(--border-muted);
 }
 
-.thread .reply p {
-  margin-top: 2px;
+.inline-thread .comment-author {
+  color: var(--text-strong);
+  font-size: 12.5px;
+  font-weight: 600;
 }
 
-.thread .reply .note-author {
+.inline-thread .comment p {
+  margin: 3px 0 0;
+}
+
+.inline-thread .comment-detail {
   color: var(--muted);
-  font-size: 11px;
 }
 
-.reply-input {
+.comment-input {
   box-sizing: border-box;
   width: 100%;
-  margin-top: 8px;
-  padding: 6px 8px;
+  margin-top: 10px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
   background: var(--canvas);
   color: var(--text);
   font: inherit;
-  font-size: 12.5px;
   resize: vertical;
 }
 
-.reply-input:focus {
+.inline-thread.composing .comment-input {
+  margin-top: 0;
+}
+
+.comment-input:focus {
   outline: none;
   border-color: var(--accent);
 }
 
-.thread-actions {
+.comment-actions {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   justify-content: flex-end;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
-.thread-actions button {
-  padding: 3px 10px;
+.comment-actions button {
+  padding: 4px 12px;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--panel);
+  border-radius: 6px;
+  background: var(--canvas);
   color: var(--text);
-  font-size: 12px;
+  font-size: 12.5px;
   cursor: pointer;
 }
 
-.thread-actions button:first-child:not(:disabled) {
+.comment-actions button.primary:not(:disabled) {
   border-color: var(--accent);
+  background: rgba(129, 162, 190, 0.15);
   color: var(--text-strong);
 }
 
-.thread-actions button:disabled {
+.comment-actions button:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.note:has(.thread.resolved) {
-  opacity: 0.55;
+.annotation-comment {
+  margin-top: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.annotation-comment:hover {
+  color: var(--text-strong);
+  border-color: var(--accent);
 }
 
 .empty {

@@ -85,6 +85,7 @@ const utterAtom = Atom.keepAlive(SidediffClient.mutation('Utter'));
 const startThreadAtom = Atom.keepAlive(SidediffClient.mutation('StartThread'));
 const replyAtom = Atom.keepAlive(SidediffClient.mutation('Reply'));
 const resolveAtom = Atom.keepAlive(SidediffClient.mutation('Resolve'));
+const toCommentAtom = Atom.keepAlive(SidediffClient.mutation('ToComment'));
 
 export const startThread = (input: { filePath: string; side: Side; line: number; body: string }) =>
   registry.set(startThreadAtom, { payload: input });
@@ -99,3 +100,5 @@ export const reportView = (view: View) =>
 
 export const sendUtterance = (text: string, handled: boolean) =>
   text.trim().length === 0 ? undefined : registry.set(utterAtom, { payload: { text: text.trim(), handled } });
+
+export const toComment = (noteId: string) => registry.set(toCommentAtom, { payload: { noteId } });

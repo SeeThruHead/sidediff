@@ -6,6 +6,11 @@ export type Side = typeof Side.Type;
 
 const Line = Schema.Int.check(Schema.isGreaterThan(0));
 
+export const NoteKind = Schema.Literals(['annotation', 'comment']);
+export type NoteKind = typeof NoteKind.Type;
+
+export const isComment = (note: { readonly kind?: NoteKind }) => note.kind === 'comment';
+
 export const Reply = Schema.Struct({
   id: Schema.String,
   author: Schema.String,
@@ -25,6 +30,7 @@ export const Note = Schema.Struct({
   createdAt: Schema.String,
   replies: Schema.optionalKey(Schema.Array(Reply)),
   resolved: Schema.optionalKey(Schema.Boolean),
+  kind: Schema.optionalKey(NoteKind),
 });
 export type Note = typeof Note.Type;
 
@@ -35,6 +41,7 @@ export const NoteInput = Schema.Struct({
   summary: Schema.NonEmptyString,
   rationale: Schema.optionalKey(Schema.String),
   author: Schema.optionalKey(Schema.String),
+  kind: Schema.optionalKey(NoteKind),
 });
 export type NoteInput = typeof NoteInput.Type;
 
@@ -113,7 +120,7 @@ export type Utterance = typeof Utterance.Type;
 
 export const ThreadEvent = Schema.Struct({
   seq: Schema.Int,
-  kind: Schema.Literals(['thread', 'reply', 'resolved', 'reopened']),
+  kind: Schema.Literals(['thread', 'reply', 'resolved', 'reopened', 'converted']),
   noteId: Schema.String,
   filePath: Schema.String,
   side: Side,
@@ -165,6 +172,11 @@ export const SidediffRpcs = RpcGroup.make(
   }),
   Rpc.make('Reply', {
     payload: { noteId: Schema.NonEmptyString, body: Schema.NonEmptyString, author: Schema.optionalKey(Schema.String) },
+    success: Note,
+    error: Schema.Union([NoteMissing, NoteUnsaved]),
+  }),
+  Rpc.make('ToComment', {
+    payload: { noteId: Schema.NonEmptyString },
     success: Note,
     error: Schema.Union([NoteMissing, NoteUnsaved]),
   }),

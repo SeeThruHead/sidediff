@@ -1,7 +1,8 @@
 import { PatchDiff } from '@pierre/diffs/react';
 import { type KeyboardEvent, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { readFile, replyToThread, resolveThread, startThread } from './client';
+import { isComment } from '../src/protocol';
+import { readFile, replyToThread, resolveThread, startThread, toComment } from './client';
 import type { FilePatch, Note } from './patch';
 import type { PaletteName } from './themes';
 import { diffCss, palettes } from './themes';
@@ -54,6 +55,12 @@ const COMPOSER = 'composer';
 
 type Composer = { readonly side: 'additions' | 'deletions'; readonly line: number };
 
+type LineMark = {
+  side: 'additions' | 'deletions';
+  lineNumber: number;
+  metadata: { id: string; type: 'anchor' | 'comment' | 'composer' };
+};
+
 const place = (
   notes: readonly { readonly id: string }[],
   anchorTop: (id: string) => number | null,
@@ -78,7 +85,7 @@ const submitOnEnter = (submit: () => void) => (event: KeyboardEvent<HTMLTextArea
   submit();
 };
 
-const Thread = ({ note }: { note: Note }) => {
+const InlineThread = ({ note }: { note: Note }) => {
   const [draft, setDraft] = useState('');
   const replies = note.replies ?? [];
   const send = () => {
@@ -89,23 +96,28 @@ const Thread = ({ note }: { note: Note }) => {
   };
 
   return (
-    <div className={note.resolved === true ? 'thread resolved' : 'thread'} onClick={(event) => event.stopPropagation()}>
+    <div className={note.resolved === true ? 'inline-thread resolved' : 'inline-thread'}>
+      <div className="comment">
+        <span className="comment-author">{note.author}</span>
+        <p>{note.summary}</p>
+        {note.rationale && note.rationale !== note.summary && <p className="comment-detail">{note.rationale}</p>}
+      </div>
       {replies.map((entry) => (
-        <div key={entry.id} className="reply">
-          <span className="note-author">{entry.author}</span>
+        <div key={entry.id} className="comment">
+          <span className="comment-author">{entry.author}</span>
           <p>{entry.body}</p>
         </div>
       ))}
       <textarea
-        className="reply-input"
+        className="comment-input"
         placeholder="Reply"
-        rows={1}
+        rows={2}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={submitOnEnter(send)}
       />
-      <div className="thread-actions">
-        <button disabled={draft.trim() === ''} onClick={send}>
+      <div className="comment-actions">
+        <button className="primary" disabled={draft.trim() === ''} onClick={send}>
           Reply
         </button>
         <button onClick={() => resolveThread(note.id, note.resolved !== true)}>
@@ -116,19 +128,7 @@ const Thread = ({ note }: { note: Note }) => {
   );
 };
 
-const ComposerCard = ({
-  composer,
-  top,
-  measureRef,
-  onSubmit,
-  onCancel,
-}: {
-  composer: Composer;
-  top: number;
-  measureRef: (id: string, element: HTMLElement | null) => void;
-  onSubmit: (body: string) => void;
-  onCancel: () => void;
-}) => {
+const InlineComposer = ({ onSubmit, onCancel }: { onSubmit: (body: string) => void; onCancel: () => void }) => {
   const [draft, setDraft] = useState('');
   const input = useRef<HTMLTextAreaElement | null>(null);
   const submit = () => {
@@ -143,17 +143,10 @@ const ComposerCard = ({
   }, []);
 
   return (
-    <article ref={(element) => measureRef(COMPOSER, element)} className="note composer" style={{ top }}>
-      <header>
-        <span className="note-author">new thread</span>
-        <span className="note-line">
-          {composer.side === 'deletions' ? 'L' : 'R'}
-          {composer.line}
-        </span>
-      </header>
+    <div className="inline-thread composing">
       <textarea
         ref={input}
-        className="reply-input"
+        className="comment-input"
         placeholder="Leave a comment"
         rows={3}
         value={draft}
@@ -163,13 +156,13 @@ const ComposerCard = ({
           submitOnEnter(submit)(event);
         }}
       />
-      <div className="thread-actions">
-        <button disabled={draft.trim() === ''} onClick={submit}>
+      <div className="comment-actions">
+        <button className="primary" disabled={draft.trim() === ''} onClick={submit}>
           Comment
         </button>
         <button onClick={onCancel}>Cancel</button>
       </div>
-    </article>
+    </div>
   );
 };
 
@@ -202,7 +195,15 @@ const NoteCard = ({
     </header>
     <h4>{note.summary}</h4>
     {note.rationale && note.rationale !== note.summary && <p>{note.rationale}</p>}
-    <Thread note={note} />
+    <button
+      className="annotation-comment"
+      onClick={(event) => {
+        event.stopPropagation();
+        toComment(note.id);
+      }}
+    >
+      Comment
+    </button>
   </article>
 );
 
@@ -240,6 +241,8 @@ export const FileSection = memo(function FileSection({
   const cards = useRef(new Map<string, HTMLElement>());
   const [placements, setPlacements] = useState<readonly Placement[]>([]);
   const [composer, setComposer] = useState<Composer | null>(null);
+  const annotations = useMemo(() => notes.filter((note) => !isComment(note)), [notes]);
+  const comments = useMemo(() => notes.filter(isComment), [notes]);
   const [near, setNear] = useState(false);
   const bodyHeight = useRef<number | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -277,29 +280,43 @@ export const FileSection = memo(function FileSection({
       hunkSeparators: 'line-info' as const,
       expansionLineCount: 20,
       loadDiffFiles: () => loadSides(file),
-      enableGutterUtility: showNotes,
+      enableGutterUtility: true,
       onGutterUtilityClick: (range: { end: number; side?: 'additions' | 'deletions' }) =>
         setComposer({ side: range.side === 'deletions' ? 'deletions' : 'additions', line: range.end }),
     }),
-    [diffStyle, palette, file, showNotes],
+    [diffStyle, palette, file],
   );
+
+  const composerView =
+    composer === null ? null : (
+      <InlineComposer
+        onCancel={() => setComposer(null)}
+        onSubmit={(body) => {
+          startThread({ filePath: file.path, side: composer.side, line: composer.line, body });
+          setComposer(null);
+        }}
+      />
+    );
 
   const lineAnnotations = useMemo(
-    () =>
-      showNotes
-        ? [
-            ...notes.map((note) => ({ side: note.side, lineNumber: note.line, metadata: { id: note.id } })),
-            ...(composer === null
-              ? []
-              : [{ side: composer.side, lineNumber: composer.line, metadata: { id: COMPOSER } }]),
-          ]
-        : [],
-    [notes, showNotes, composer],
-  );
-
-  const placed = useMemo(
-    () => (composer === null ? notes : [...notes, { id: COMPOSER }]),
-    [notes, composer],
+    (): LineMark[] => [
+      ...(showNotes
+        ? annotations.map((note) => ({
+            side: note.side,
+            lineNumber: note.line,
+            metadata: { id: note.id, type: 'anchor' as const },
+          }))
+        : []),
+      ...comments.map((note) => ({
+        side: note.side,
+        lineNumber: note.line,
+        metadata: { id: note.id, type: 'comment' as const },
+      })),
+      ...(composer === null
+        ? []
+        : [{ side: composer.side, lineNumber: composer.line, metadata: { id: COMPOSER, type: 'composer' as const } }]),
+    ],
+    [annotations, comments, showNotes, composer],
   );
 
   const measureRef = useCallback((id: string, element: HTMLElement | null) => {
@@ -318,7 +335,7 @@ export const FileSection = memo(function FileSection({
       return anchor === null ? null : anchor.getBoundingClientRect().top - columnTop;
     };
     const heightOf = (id: string) => cards.current.get(id)?.offsetHeight ?? 64;
-    const next = place(placed, anchorTop, heightOf);
+    const next = place(annotations, anchorTop, heightOf);
 
     setPlacements((current) =>
       current.length === next.length &&
@@ -326,7 +343,7 @@ export const FileSection = memo(function FileSection({
         ? current
         : next,
     );
-  }, [placed]);
+  }, [annotations]);
 
   useLayoutEffect(() => {
     const section = sectionRef.current;
@@ -374,7 +391,12 @@ export const FileSection = memo(function FileSection({
         </button>
         {file.status !== 'modified' && <span className={`badge badge-${file.status}`}>{file.status}</span>}
         <span className="spacer" />
-        {notes.length > 0 && <span className="note-count">{notes.length} notes</span>}
+        {comments.length > 0 && (
+          <span className="note-count">
+            {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
+          </span>
+        )}
+        {annotations.length > 0 && <span className="note-count">{annotations.length} notes</span>}
         <label className={viewed ? 'viewed-toggle checked' : 'viewed-toggle'}>
           <input
             type="checkbox"
@@ -394,30 +416,26 @@ export const FileSection = memo(function FileSection({
               options={diffOptions}
               lineAnnotations={lineAnnotations}
               selectedLines={selection}
-              renderAnnotation={(annotation) => (
-                <div
-                  className={annotation.metadata.id === activeNote ? 'anchor active' : 'anchor'}
-                  data-note-anchor={annotation.metadata.id}
-                  onClick={() => onFocusNote(annotation.metadata.id)}
-                />
-              )}
+              renderAnnotation={(annotation) => {
+                const { id, type } = annotation.metadata;
+                const comment = comments.find((note) => note.id === id);
+
+                if (type === 'composer') return composerView;
+                if (type === 'comment') return comment === undefined ? null : <InlineThread note={comment} />;
+
+                return (
+                  <div
+                    className={id === activeNote ? 'anchor active' : 'anchor'}
+                    data-note-anchor={id}
+                    onClick={() => onFocusNote(id)}
+                  />
+                );
+              }}
             />
           </div>
           {showNotes && (
             <div ref={columnRef} className="notes-column" style={{ minHeight: columnHeight }}>
-              {composer !== null && (
-                <ComposerCard
-                  composer={composer}
-                  top={topOf(COMPOSER)}
-                  measureRef={measureRef}
-                  onCancel={() => setComposer(null)}
-                  onSubmit={(body) => {
-                    startThread({ filePath: file.path, side: composer.side, line: composer.line, body });
-                    setComposer(null);
-                  }}
-                />
-              )}
-              {notes.map((note) => (
+              {annotations.map((note) => (
                 <NoteCard
                   key={note.id}
                   note={note}
