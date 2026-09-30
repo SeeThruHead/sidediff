@@ -57,6 +57,7 @@ export const Snapshot = Schema.Struct({
   patch: Schema.String,
   notes: Schema.Array(Note),
   version: Schema.String,
+  diffVersion: Schema.String,
   watching: Schema.Boolean,
   updatedAt: Schema.String,
 });

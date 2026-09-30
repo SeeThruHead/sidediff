@@ -1,5 +1,5 @@
 import { BrowserSocket } from '@effect/platform-browser';
-import { Duration, Effect, Layer, Schedule, Stream } from 'effect';
+import { Duration, Effect, Layer, Predicate, Schedule, Stream } from 'effect';
 import { Atom, AtomRegistry, AtomRpc } from 'effect/reactivity';
 import { RpcClient, RpcSerialization } from 'effect/rpc';
 
@@ -67,13 +67,27 @@ const fileAtom = Atom.family((key: string) => {
     .pipe(Atom.setIdleTTL(Duration.minutes(10)));
 });
 
-const currentVersion = () => {
+const currentDiffVersion = () => {
   const snapshot = registry.get(snapshotAtom);
-  return snapshot._tag === 'Success' ? (snapshot.value?.version ?? '') : '';
+  return snapshot._tag === 'Success' ? (snapshot.value?.diffVersion ?? '') : '';
 };
 
-export const readFile = (side: 'old' | 'new', path: string): Promise<string> =>
-  Effect.runPromise(AtomRegistry.getResult(registry, fileAtom(fileKey(currentVersion(), side, path))));
+const isMissingFile = (error: unknown) => Predicate.isTagged(error, 'FileMissing');
+
+export const readFile = (side: 'old' | 'new', path: string): Promise<string> => {
+  const atom = fileAtom(fileKey(currentDiffVersion(), side, path));
+
+  return Effect.runPromise(
+    AtomRegistry.getResult(registry, atom).pipe(
+      Effect.tapError(() => Effect.sync(() => registry.refresh(atom))),
+      Effect.retry({
+        schedule: Schedule.exponential(Duration.millis(250)),
+        times: 6,
+        while: (error) => !isMissingFile(error),
+      }),
+    ),
+  );
+};
 
 export const readFileSide = (path: string, side: Side): Promise<string | null> =>
   readFile(side === 'deletions' ? 'old' : 'new', path).catch(() => null);

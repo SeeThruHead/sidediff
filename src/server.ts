@@ -122,6 +122,7 @@ export class Review extends Context.Service<
               patch,
               notes: current,
               version: versionOf(patch, current),
+              diffVersion: versionOf(patch, []),
               watching: options.watch,
               updatedAt: DateTime.formatIso(now),
             }),
