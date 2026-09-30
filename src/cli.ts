@@ -162,6 +162,11 @@ const listen = Command.make(
     }).pipe(withClient),
 ).pipe(Command.withDescription('wait for the next thing said into the mic'));
 
+const serverOr = <A, E1, E2, R>(
+  remote: (client: Context.Service.Shape<typeof Client>) => Effect.Effect<A, E1 | RpcClientError.RpcClientError>,
+  local: Effect.Effect<A, E2, R>,
+) => Client.use(remote).pipe(withClient, Effect.catchTag(['NoServer', 'RpcClientError'], () => local));
+
 const noteAdd = Command.make(
   'add',
   {
@@ -174,12 +179,12 @@ const noteAdd = Command.make(
   },
   ({ file, newLine, oldLine, summary, rationale, author }) =>
     Effect.gen(function* () {
-      const notes = yield* Notes;
-      const [note] = yield* notes.add([
-        { filePath: file, summary, ...defined({ newLine, oldLine, rationale, author }) },
-      ]);
+      const input = { filePath: file, summary, ...defined({ newLine, oldLine, rationale, author }) };
+      const [note] = yield* serverOr(
+        (client) => client.AddNotes({ notes: [input] }),
+        Notes.use((notes) => notes.add([input])),
+      );
 
-      yield* nudgeServer;
       yield* Console.log(`added ${note?.id} on ${note?.filePath}:${note?.line}`);
     }),
 ).pipe(Command.withDescription('add one note'));
@@ -187,13 +192,15 @@ const noteAdd = Command.make(
 const noteApply = Command.make('apply', {}, () =>
   Effect.gen(function* () {
     const stdio = yield* Stdio.Stdio;
-    const notes = yield* Notes;
 
     const text = yield* Stream.mkString(Stream.decodeText(stdio.stdin));
     const batch = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(NoteBatch))(text);
-    const added = yield* notes.add('comments' in batch ? batch.comments : batch);
+    const inputs = 'comments' in batch ? batch.comments : batch;
+    const added = yield* serverOr(
+      (client) => client.AddNotes({ notes: inputs }),
+      Notes.use((notes) => notes.add(inputs)),
+    );
 
-    yield* nudgeServer;
     yield* Console.log(`added ${added.length} notes`);
   }),
 ).pipe(Command.withDescription('add a batch from stdin: {"comments":[{filePath,newLine|oldLine,summary,...}]}'));
@@ -203,16 +210,14 @@ const noteList = Command.make(
   { json: Flag.Boolean('json').pipe(Flag.withDefault(false)), file: optionalText('file') },
   ({ json, file }) =>
     Effect.gen(function* () {
-      const notes = yield* Notes;
-      const shown = (yield* notes.list).filter((note) => file === undefined || note.filePath === file);
+      const all = yield* serverOr((client) => client.ListNotes(), Notes.use((notes) => notes.list));
+      const shown = all.filter((note) => file === undefined || note.filePath === file);
 
       if (json) return yield* Console.log(JSON.stringify(shown, null, 2));
 
       yield* Effect.forEach(shown, (note) => Console.log(`${note.id}  ${note.filePath}:${note.line}  ${note.summary}`));
     }),
 ).pipe(Command.withDescription('list notes'));
-
-const nudgeServer = Client.use((client) => client.Refresh()).pipe(withClient, Effect.ignore);
 
 const eventLine = (event: {
   readonly seq: number;
@@ -256,8 +261,8 @@ const threads = Command.make(
 
 const thread = Command.make('thread', { id: Argument.String('id') }, ({ id }) =>
   Effect.gen(function* () {
-    const notes = yield* Notes;
-    const found = (yield* notes.list).find((note) => note.id === id);
+    const all = yield* serverOr((client) => client.ListNotes(), Notes.use((notes) => notes.list));
+    const found = all.find((note) => note.id === id);
 
     if (found === undefined) return yield* Console.error(`no note ${id}`);
 
@@ -295,18 +300,17 @@ const resolve = Command.make(
 
 const noteRemove = Command.make('rm', { id: Argument.String('id') }, ({ id }) =>
   Effect.gen(function* () {
-    const notes = yield* Notes;
-    yield* notes.remove(id);
-    yield* nudgeServer;
+    yield* serverOr((client) => client.RemoveNote({ id }), Notes.use((notes) => notes.remove(id)));
     yield* Console.log(`removed ${id}`);
   }),
 ).pipe(Command.withDescription('remove a note'));
 
 const noteClear = Command.make('clear', { file: optionalText('file') }, ({ file }) =>
   Effect.gen(function* () {
-    const notes = yield* Notes;
-    const count = yield* notes.clear(file);
-    yield* nudgeServer;
+    const count = yield* serverOr(
+      (client) => client.ClearNotes(file === undefined ? {} : { filePath: file }),
+      Notes.use((notes) => notes.clear(file)),
+    );
     yield* Console.log(`cleared ${count} notes`);
   }),
 ).pipe(Command.withDescription('remove every note, or every note on one file'));

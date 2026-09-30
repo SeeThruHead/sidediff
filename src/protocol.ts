@@ -174,6 +174,14 @@ export const SidediffRpcs = RpcGroup.make(
     error: Schema.Union([NoteMissing, NoteUnsaved]),
   }),
   Rpc.make('Refresh', {}),
+  Rpc.make('ListNotes', { success: Schema.Array(Note) }),
+  Rpc.make('AddNotes', { payload: { notes: Schema.Array(NoteInput) }, success: Schema.Array(Note), error: NoteUnsaved }),
+  Rpc.make('RemoveNote', { payload: { id: Schema.NonEmptyString }, error: NoteUnsaved }),
+  Rpc.make('ClearNotes', {
+    payload: { filePath: Schema.optionalKey(Schema.String) },
+    success: Schema.Int,
+    error: NoteUnsaved,
+  }),
   Rpc.make('Threads', {
     payload: { after: Schema.optionalKey(Schema.Int) },
     success: Schema.Array(ThreadEvent),

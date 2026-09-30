@@ -1,4 +1,4 @@
-import { Context, DateTime, Effect, FileSystem, Layer, Option, Path, Random, Schema } from 'effect';
+import { Context, DateTime, Effect, FileSystem, Layer, Option, Path, Random, Schema, Stream, SubscriptionRef } from 'effect';
 
 import { Note, type NoteInput, NoteMissing } from './protocol.js';
 import { Repo } from './repo.js';
@@ -23,11 +23,15 @@ const decodeNote = Schema.decodeUnknownOption(Schema.fromJsonString(Note));
 
 const hex = (value: number) => value.toString(16).padStart(8, '0');
 
+const ordered = (notes: readonly Note[]) =>
+  notes.toSorted((a, b) => a.filePath.localeCompare(b.filePath) || a.line - b.line);
+
 export class Notes extends Context.Service<
   Notes,
   {
-    readonly add: (inputs: readonly NoteInput[]) => Effect.Effect<readonly Note[], NoteWithoutLine | NotesUnwritable>;
     readonly list: Effect.Effect<readonly Note[]>;
+    readonly changes: Stream.Stream<readonly Note[]>;
+    readonly add: (inputs: readonly NoteInput[]) => Effect.Effect<readonly Note[], NoteWithoutLine | NotesUnwritable>;
     readonly remove: (id: string) => Effect.Effect<void, NotesUnwritable>;
     readonly clear: (filePath: string | undefined) => Effect.Effect<number, NotesUnwritable>;
     readonly reply: (id: string, author: string, body: string) => Effect.Effect<Note, NoteMissing | NotesUnwritable>;
@@ -49,96 +53,115 @@ export class Notes extends Context.Service<
         ([a, b]) => `${hex(a)}${hex(b)}`,
       );
 
-      const toNote = (input: NoteInput) =>
-        Effect.gen(function* () {
-          const line = input.newLine ?? input.oldLine;
-          if (line === undefined) return yield* new NoteWithoutLine({ filePath: input.filePath });
+      const names = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []));
+      const loaded = yield* Effect.forEach(
+        names.filter((name) => name.endsWith('.json')),
+        (name) =>
+          fs.readFileString(path.join(directory, name)).pipe(
+            Effect.map(decodeNote),
+            Effect.orElseSucceed(() => Option.none<Note>()),
+          ),
+        { concurrency: 16 },
+      );
 
-          const id = yield* newId;
-          const now = yield* DateTime.now;
+      const state = yield* SubscriptionRef.make(
+        ordered(loaded.flatMap((note) => (Option.isSome(note) ? [note.value] : []))),
+      );
 
-          return {
-            id,
-            filePath: input.filePath,
-            side: input.newLine === undefined ? 'deletions' : 'additions',
-            line,
-            summary: input.summary,
-            ...(input.rationale === undefined ? {} : { rationale: input.rationale }),
-            author: input.author ?? 'agent',
-            createdAt: DateTime.formatIso(now),
-          } satisfies Note;
-        });
-
-      const list = Effect.gen(function* () {
-        const names = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []));
-
-        const read = yield* Effect.forEach(
-          names.filter((name) => name.endsWith('.json')),
-          (name) =>
-            fs.readFileString(path.join(directory, name)).pipe(
-              Effect.map(decodeNote),
-              Effect.orElseSucceed(() => Option.none<Note>()),
-            ),
-          { concurrency: 16 },
+      const write = (note: Note) =>
+        fs.makeDirectory(directory, { recursive: true }).pipe(
+          Effect.andThen(fs.writeFileString(fileOf(note.id), JSON.stringify(note))),
+          Effect.mapError(unwritable),
         );
 
-        return read
-          .flatMap((note) => (Option.isSome(note) ? [note.value] : []))
-          .toSorted((a, b) => a.filePath.localeCompare(b.filePath) || a.line - b.line);
-      });
+      const erase = (id: string) => fs.remove(fileOf(id), { force: true }).pipe(Effect.mapError(unwritable));
 
-      const remove = (id: string) => fs.remove(fileOf(id), { force: true }).pipe(Effect.mapError(unwritable));
-
-      const add = (inputs: readonly NoteInput[]) =>
-        Effect.gen(function* () {
-          const created = yield* Effect.forEach(inputs, toNote);
-
-          yield* fs.makeDirectory(directory, { recursive: true }).pipe(Effect.mapError(unwritable));
-
-          yield* Effect.forEach(
-            created,
-            (note) => fs.writeFileString(fileOf(note.id), JSON.stringify(note)).pipe(Effect.mapError(unwritable)),
-            { concurrency: 16, discard: true },
-          );
-
-          return created;
-        });
-
-      const clear = (filePath: string | undefined) =>
-        Effect.gen(function* () {
-          const doomed = (yield* list).filter((note) => filePath === undefined || note.filePath === filePath);
-
-          yield* Effect.forEach(doomed, (note) => remove(note.id), { concurrency: 16, discard: true });
-
-          return doomed.length;
-        });
-
-      const read = (id: string) =>
-        fs.readFileString(fileOf(id)).pipe(
-          Effect.map(decodeNote),
-          Effect.orElseSucceed(() => Option.none<Note>()),
-          Effect.flatMap(Option.match({ onNone: () => Effect.fail(new NoteMissing({ id })), onSome: Effect.succeed })),
+      const put = (notes: readonly Note[]) =>
+        SubscriptionRef.update(state, (current) =>
+          ordered([...current.filter((note) => !notes.some((next) => next.id === note.id)), ...notes]),
         );
 
-      const save = (note: Note) =>
-        fs.writeFileString(fileOf(note.id), JSON.stringify(note)).pipe(Effect.mapError(unwritable), Effect.as(note));
+      const find = (id: string) =>
+        Effect.flatMap(SubscriptionRef.get(state), (current) =>
+          Option.match(Option.fromNullishOr(current.find((note) => note.id === id)), {
+            onNone: () => Effect.fail(new NoteMissing({ id })),
+            onSome: Effect.succeed,
+          }),
+        );
 
-      const reply = Effect.fn('Notes.reply')(function* (id: string, author: string, body: string) {
-        const note = yield* read(id);
-        const replyId = yield* newId;
+      const toNote = Effect.fnUntraced(function* (input: NoteInput) {
+        const line = input.newLine ?? input.oldLine;
+        if (line === undefined) return yield* new NoteWithoutLine({ filePath: input.filePath });
+
+        const id = yield* newId;
         const now = yield* DateTime.now;
-        const entry = { id: replyId, author, body, createdAt: DateTime.formatIso(now) };
 
-        return yield* save({ ...note, replies: [...(note.replies ?? []), entry] });
+        return {
+          id,
+          filePath: input.filePath,
+          side: input.newLine === undefined ? 'deletions' : 'additions',
+          line,
+          summary: input.summary,
+          ...(input.rationale === undefined ? {} : { rationale: input.rationale }),
+          author: input.author ?? 'agent',
+          createdAt: DateTime.formatIso(now),
+        } satisfies Note;
       });
 
-      const resolve = Effect.fn('Notes.resolve')(function* (id: string, resolved: boolean) {
-        const note = yield* read(id);
+      const add = Effect.fn('Notes.add')(function* (inputs: readonly NoteInput[]) {
+        const created = yield* Effect.forEach(inputs, toNote);
 
-        return yield* save({ ...note, resolved });
+        yield* Effect.forEach(created, write, { concurrency: 16, discard: true });
+        yield* put(created);
+
+        return created;
       });
 
-      return { add, list, remove, clear, reply, resolve };
+      const remove = Effect.fn('Notes.remove')(function* (id: string) {
+        yield* erase(id);
+        yield* SubscriptionRef.update(state, (current) => current.filter((note) => note.id !== id));
+      });
+
+      const clear = Effect.fn('Notes.clear')(function* (filePath: string | undefined) {
+        const doomed = (yield* SubscriptionRef.get(state)).filter(
+          (note) => filePath === undefined || note.filePath === filePath,
+        );
+
+        yield* Effect.forEach(doomed, (note) => erase(note.id), { concurrency: 16, discard: true });
+        yield* SubscriptionRef.update(state, (current) => current.filter((note) => !doomed.includes(note)));
+
+        return doomed.length;
+      });
+
+      const change = Effect.fnUntraced(function* (id: string, edit: (note: Note) => Effect.Effect<Note>) {
+        const note = yield* find(id);
+        const next = yield* edit(note);
+
+        yield* write(next);
+        yield* put([next]);
+
+        return next;
+      });
+
+      const reply = (id: string, author: string, body: string) =>
+        change(id, (note) =>
+          Effect.map(Effect.all([newId, DateTime.now]), ([replyId, now]) => ({
+            ...note,
+            replies: [...(note.replies ?? []), { id: replyId, author, body, createdAt: DateTime.formatIso(now) }],
+          })),
+        );
+
+      const resolve = (id: string, resolved: boolean) => change(id, (note) => Effect.succeed({ ...note, resolved }));
+
+      return Notes.of({
+        list: SubscriptionRef.get(state),
+        changes: SubscriptionRef.changes(state),
+        add,
+        remove,
+        clear,
+        reply,
+        resolve,
+      });
     }),
   );
 }

@@ -69,9 +69,10 @@ const place = (
       return [...placed, { id, top: Math.max(desired, floor) }];
     }, []);
 
-const submitOnMetaEnter = (submit: () => void) => (event: KeyboardEvent<HTMLTextAreaElement>) => {
+const submitOnEnter = (submit: () => void) => (event: KeyboardEvent<HTMLTextAreaElement>) => {
   if (event.key !== 'Enter') return;
-  if (!(event.metaKey || event.ctrlKey)) return;
+  if (event.shiftKey) return;
+  if (event.nativeEvent.isComposing) return;
 
   event.preventDefault();
   submit();
@@ -101,7 +102,7 @@ const Thread = ({ note }: { note: Note }) => {
         rows={1}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={submitOnMetaEnter(send)}
+        onKeyDown={submitOnEnter(send)}
       />
       <div className="thread-actions">
         <button disabled={draft.trim() === ''} onClick={send}>
@@ -159,7 +160,7 @@ const ComposerCard = ({
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'Escape') onCancel();
-          submitOnMetaEnter(submit)(event);
+          submitOnEnter(submit)(event);
         }}
       />
       <div className="thread-actions">

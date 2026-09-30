@@ -96,48 +96,46 @@ export class Review extends Context.Service<
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
 
-      const build = Effect.gen(function* () {
-        const [patch, current, branch, now] = yield* Effect.all(
-          [git.diff(repo.root, options.range), notes.list, git.branch(repo.root), DateTime.now],
-          { concurrency: 'unbounded' },
-        );
+      const readPatch = Effect.map(
+        Effect.all([git.diff(repo.root, options.range), git.branch(repo.root)], { concurrency: 'unbounded' }),
+        ([patch, branch]) => ({ patch, branch }),
+      );
 
-        return {
-          repo: repo.root,
-          branch,
-          range: options.range,
-          patch,
-          notes: current,
-          version: versionOf(patch, current),
-          watching: options.watch,
-          updatedAt: DateTime.formatIso(now),
-        } satisfies Snapshot;
-      });
+      const diff = yield* SubscriptionRef.make(yield* readPatch);
 
-      const snapshot = yield* SubscriptionRef.make(yield* build);
-
-      const refresh = build.pipe(
+      const refresh = readPatch.pipe(
         Effect.flatMap((next) =>
-          SubscriptionRef.update(snapshot, (current) => (current.version === next.version ? current : next)),
+          SubscriptionRef.update(diff, (current) => (current.patch === next.patch ? current : next)),
         ),
         Effect.catch((error) => Effect.logWarning('[refresh] diff failed', error)),
       );
 
-      yield* fs.makeDirectory(repo.notes, { recursive: true });
-
-      const changes = Stream.merge(
-        fs.watch(repo.notes),
-        options.watch
-          ? fs.watch(repo.root, { recursive: true }).pipe(Stream.filter((event) => isRelevant(event.path)))
-          : Stream.empty,
+      const snapshots = Stream.zipLatest(SubscriptionRef.changes(diff), notes.changes).pipe(
+        Stream.mapEffect(([{ patch, branch }, current]) =>
+          Effect.map(
+            DateTime.now,
+            (now): Snapshot => ({
+              repo: repo.root,
+              branch,
+              range: options.range,
+              patch,
+              notes: current,
+              version: versionOf(patch, current),
+              watching: options.watch,
+              updatedAt: DateTime.formatIso(now),
+            }),
+          ),
+        ),
       );
 
-      yield* changes.pipe(
-        Stream.debounce(Duration.millis(250)),
-        Stream.runForEach(() => refresh),
-        Effect.catch((error) => Effect.logWarning('[watch] stopped', error)),
-        Effect.forkScoped,
-      );
+      if (options.watch)
+        yield* fs.watch(repo.root, { recursive: true }).pipe(
+          Stream.filter((event) => isRelevant(event.path)),
+          Stream.debounce(Duration.millis(250)),
+          Stream.runForEach(() => refresh),
+          Effect.catch((error) => Effect.logWarning('[watch] stopped', error)),
+          Effect.forkScoped,
+        );
 
       const commands = yield* PubSub.unbounded<Command>();
       const watchers = yield* Ref.make(0);
@@ -222,7 +220,6 @@ export class Review extends Context.Service<
         });
 
         yield* PubSub.publish(threadEvents, event);
-        yield* refresh;
 
         return note;
       });
@@ -277,7 +274,7 @@ export class Review extends Context.Service<
         reply,
         resolve,
         threads,
-        snapshots: SubscriptionRef.changes(snapshot),
+        snapshots,
         file,
         send: (command) => Effect.andThen(PubSub.publish(commands, command), Ref.get(watchers)),
 
@@ -297,9 +294,12 @@ export class Review extends Context.Service<
   );
 }
 
+const unsavedError = (error: { readonly message: string }) => new NoteUnsaved({ reason: error.message });
+
 const RpcHandlers = SidediffRpcs.toLayer(
   Effect.gen(function* () {
     const review = yield* Review;
+    const notes = yield* Notes;
 
     return SidediffRpcs.of({
       Snapshots: () => review.snapshots,
@@ -315,6 +315,10 @@ const RpcHandlers = SidediffRpcs.toLayer(
       Resolve: ({ noteId, resolved, author }) => review.resolve(noteId, resolved, author),
       Threads: ({ after }) => review.threads(after),
       Refresh: () => review.refresh,
+      ListNotes: () => notes.list,
+      AddNotes: ({ notes: inputs }) => notes.add(inputs).pipe(Effect.mapError(unsavedError)),
+      RemoveNote: ({ id }) => notes.remove(id).pipe(Effect.mapError(unsavedError)),
+      ClearNotes: ({ filePath }) => notes.clear(filePath).pipe(Effect.mapError(unsavedError)),
     });
   }),
 );

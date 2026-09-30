@@ -80,11 +80,11 @@ export const readFileSide = (path: string, side: Side): Promise<string | null> =
 
 export const interimAtom = Atom.make('');
 
-const reportViewAtom = SidediffClient.mutation('ReportView');
-const utterAtom = SidediffClient.mutation('Utter');
-const startThreadAtom = SidediffClient.mutation('StartThread');
-const replyAtom = SidediffClient.mutation('Reply');
-const resolveAtom = SidediffClient.mutation('Resolve');
+const reportViewAtom = Atom.keepAlive(SidediffClient.mutation('ReportView'));
+const utterAtom = Atom.keepAlive(SidediffClient.mutation('Utter'));
+const startThreadAtom = Atom.keepAlive(SidediffClient.mutation('StartThread'));
+const replyAtom = Atom.keepAlive(SidediffClient.mutation('Reply'));
+const resolveAtom = Atom.keepAlive(SidediffClient.mutation('Resolve'));
 
 export const startThread = (input: { filePath: string; side: Side; line: number; body: string }) =>
   registry.set(startThreadAtom, { payload: input });
