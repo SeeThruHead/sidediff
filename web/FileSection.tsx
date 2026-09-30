@@ -129,11 +129,17 @@ const ComposerCard = ({
   onCancel: () => void;
 }) => {
   const [draft, setDraft] = useState('');
+  const input = useRef<HTMLTextAreaElement | null>(null);
   const submit = () => {
     if (draft.trim() === '') return;
 
     onSubmit(draft.trim());
   };
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => input.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   return (
     <article ref={(element) => measureRef(COMPOSER, element)} className="note composer" style={{ top }}>
@@ -145,7 +151,7 @@ const ComposerCard = ({
         </span>
       </header>
       <textarea
-        autoFocus
+        ref={input}
         className="reply-input"
         placeholder="Leave a comment"
         rows={3}
