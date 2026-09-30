@@ -14,6 +14,19 @@ import { parseIntent } from './intents';
 import { connectedAtom, reportView, sendUtterance, snapshotAtom } from './client';
 import { useVoice } from './voice';
 
+const keepHeaderInView = (path: string) =>
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      const section = document.getElementById(`file-${path}`);
+      const main = document.querySelector('main.files');
+      if (section === null) return;
+      if (main === null) return;
+      if (section.getBoundingClientRect().top >= main.getBoundingClientRect().top) return;
+
+      section.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }),
+  );
+
 const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
 
@@ -126,6 +139,8 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
       setOpenOverrides(
         (current) => new Map([...current].filter(([path]) => path !== file.path)),
       );
+
+      if (viewed) keepHeaderInView(file.path);
     },
     [setViewed],
   );
