@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema, Stream } from 'effect';
-import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process';
+import { ChildProcess, ChildProcessSpawner } from 'effect/process';
 
 export class GitFailed extends Schema.TaggedError<GitFailed>()('GitFailed', {
   args: Schema.Array(Schema.String),

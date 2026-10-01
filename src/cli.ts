@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { NodeRuntime, NodeServices, NodeSocket } from '@effect/platform-node';
 import { Console, Context, Duration, Effect, FileSystem, Layer, Option, Schema, Stdio, Stream } from 'effect';
-import { Argument, Command, Flag } from 'effect/unstable/cli';
-import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process';
-import { RpcClient, type RpcClientError, type RpcGroup, RpcSerialization } from 'effect/unstable/rpc';
+import { Argument, Command, Flag } from 'effect/cli';
+import { ChildProcess, ChildProcessSpawner } from 'effect/process';
+import { RpcClient, type RpcClientError, type RpcGroup, RpcSerialization } from 'effect/rpc';
 
 import { Git } from './git.js';
 import { Notes } from './notes.js';

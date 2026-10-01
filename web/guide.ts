@@ -2,7 +2,7 @@ import { useAtomMount, useAtomSubscribe } from '@effect/atom-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { Command, Explanation, Side, Step, Target } from '../src/protocol';
-import type { Atom } from 'effect/unstable/reactivity';
+import type { Atom } from 'effect/reactivity';
 
 import { commandAtom, readFileSide } from './client';
 

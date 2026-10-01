@@ -1,7 +1,7 @@
 import { BrowserSocket } from '@effect/platform-browser';
 import { Duration, Effect, Layer, Schedule, Stream } from 'effect';
-import { Atom, AtomRegistry, AtomRpc } from 'effect/unstable/reactivity';
-import { RpcClient, RpcSerialization } from 'effect/unstable/rpc';
+import { Atom, AtomRegistry, AtomRpc } from 'effect/reactivity';
+import { RpcClient, RpcSerialization } from 'effect/rpc';
 
 import { type Command, type Side, SidediffRpcs, type Snapshot, type View } from '../src/protocol';
 

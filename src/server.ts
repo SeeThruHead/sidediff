@@ -18,8 +18,8 @@ import {
   Stream,
   SubscriptionRef,
 } from 'effect';
-import { HttpRouter, HttpServerResponse } from 'effect/unstable/http';
-import { RpcSerialization, RpcServer } from 'effect/unstable/rpc';
+import { HttpRouter, HttpServerResponse } from 'effect/http';
+import { RpcSerialization, RpcServer } from 'effect/rpc';
 
 import { Git } from './git.js';
 import { Notes } from './notes.js';
