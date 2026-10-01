@@ -85,19 +85,7 @@ export const useVoice = (onFinal: (text: string) => void) => {
     setListening(false);
   }, []);
 
-  useEffect(() => {
-    const permissions = navigator.permissions as
-      | { query: (descriptor: { name: string }) => Promise<{ state: string }> }
-      | undefined;
-    void permissions
-      ?.query({ name: 'microphone' })
-      .then((status) => {
-        if (status.state === 'granted') start();
-      })
-      .catch(() => undefined);
-
-    return () => stop();
-  }, [start, stop]);
+  useEffect(() => stop, [stop]);
 
   return { supported, listening, error, start, stop };
 };
