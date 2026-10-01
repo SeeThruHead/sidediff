@@ -4,6 +4,7 @@ import { Console, Context, Duration, Effect, FileSystem, Layer, Option, Schema, 
 import { Argument, Command, Flag } from 'effect/cli';
 import { ChildProcess, ChildProcessSpawner } from 'effect/process';
 import { RpcClient, type RpcClientError, type RpcGroup, RpcSerialization } from 'effect/rpc';
+import { createRequire } from 'node:module';
 
 import { Git } from './git.js';
 import { Notes } from './notes.js';
@@ -279,4 +280,6 @@ const AppLayer = Notes.layer.pipe(
   Layer.provideMerge(NodeServices.layer),
 );
 
-Command.run(sidediff, { version: '0.2.0' }).pipe(Effect.provide(AppLayer), NodeRuntime.runMain);
+const { version } = createRequire(import.meta.url)('../package.json') as { version: string };
+
+Command.run(sidediff, { version }).pipe(Effect.provide(AppLayer), NodeRuntime.runMain);
