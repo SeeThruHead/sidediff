@@ -1,0 +1,8 @@
+# pnpm 12 no longer reads the "pnpm" field in package.json, so the pins live here.
+# They stop @effect/platform-node-shared floating to an rc that needs a newer
+# effect than the one pinned in dependencies. The npm "overrides" block in
+# package.json covers anyone installing this repo with npm.
+overrides:
+  effect: 4.0.0-rc.118
+  '@effect/platform-node': 4.0.0-rc.118
+  '@effect/platform-node-shared': 4.0.0-rc.118

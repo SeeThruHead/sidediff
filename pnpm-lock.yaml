@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  effect: 4.0.0-rc.118
+  '@effect/platform-node': 4.0.0-rc.118
+  '@effect/platform-node-shared': 4.0.0-rc.118
+
 importers:
 
   .:
@@ -20,7 +25,7 @@ importers:
     devDependencies:
       '@effect/atom-react':
         specifier: 4.0.0-rc.118
-        version: 4.0.0-rc.118(effect@4.0.0-rc.118)(react@19.3.0)(scheduler@0.28.0)
+        version: 4.0.0-rc.118(effect@4.0.0-rc.118)(react@19.3.0)(scheduler@0.27.0)
       '@effect/platform-browser':
         specifier: 4.0.0-rc.118
         version: 4.0.0-rc.118(effect@4.0.0-rc.118)
@@ -57,26 +62,26 @@ packages:
   '@effect/atom-react@4.0.0-rc.118':
     resolution: {integrity: sha512-H6XBWGOlKIe53yFHdzd9zJE+H1RDoMvqF5OyWBZetbaHJUYlSbZECvDzBw1545fSoHrgH2JmlWePFPsXOgGSqA==}
     peerDependencies:
-      effect: ^4.0.0-rc.118
+      effect: 4.0.0-rc.118
       react: '>=19.0.0 <20.0.0'
       scheduler: '>=0.25.0 <0.28.0'
 
   '@effect/platform-browser@4.0.0-rc.118':
     resolution: {integrity: sha512-X0UnkYh76kFU8/qpqh5FNgqDEuZI1GWA/ZxvA9NOUBYN/e3mBJCzjWHa1XeRwtn7xSiKlZcY/vyReLFbbjcHlg==}
     peerDependencies:
-      effect: ^4.0.0-rc.118
+      effect: 4.0.0-rc.118
 
   '@effect/platform-node-shared@4.0.0-rc.118':
     resolution: {integrity: sha512-pNbmIlxbAUxAthUNsp2xm1NLG9kxoYecsPkoYl9mNF2oxPcKDxAvkOar7tYnLSUpXJeATm4pxYVipdZjQfqO4Q==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      effect: ^4.0.0-rc.118
+      effect: 4.0.0-rc.118
 
   '@effect/platform-node@4.0.0-rc.118':
     resolution: {integrity: sha512-qdAxPZ+5bKxVnzkwziqcHZTHRHz2hyfFX6NhwEmm75CBpmaIzXIZR2LRqGd1/8eI3J3cOrXcAYzByhln7T1/EA==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      effect: ^4.0.0-rc.118
+      effect: 4.0.0-rc.118
       redis: '>=5.0.0 <7.0.0'
 
   '@oxc-project/types@0.151.0':
@@ -656,6 +661,9 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
+  scheduler@0.27.0:
+    resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
+
   scheduler@0.28.0:
     resolution: {integrity: sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw==}
 
@@ -773,11 +781,11 @@ packages:
 
 snapshots:
 
-  '@effect/atom-react@4.0.0-rc.118(effect@4.0.0-rc.118)(react@19.3.0)(scheduler@0.28.0)':
+  '@effect/atom-react@4.0.0-rc.118(effect@4.0.0-rc.118)(react@19.3.0)(scheduler@0.27.0)':
     dependencies:
       effect: 4.0.0-rc.118
       react: 19.3.0
-      scheduler: 0.28.0
+      scheduler: 0.27.0
 
   '@effect/platform-browser@4.0.0-rc.118(effect@4.0.0-rc.118)':
     dependencies:
@@ -1235,6 +1243,8 @@ snapshots:
       '@rolldown/binding-openharmony-arm64': 1.2.10
       '@rolldown/binding-win32-arm64-msvc': 1.2.10
       '@rolldown/binding-win32-x64-msvc': 1.2.10
+
+  scheduler@0.27.0: {}
 
   scheduler@0.28.0: {}
 
