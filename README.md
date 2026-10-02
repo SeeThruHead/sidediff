@@ -49,7 +49,7 @@ sidediff note clear [--file src/app.ts]
 
 `--new-line` targets the new side of the diff, `--old-line` the old side. The batch format matches Hunk's `session comment apply`, so existing agent tooling can target either.
 
-Notes are stored one file per note under `<git dir>/sidediff/notes`, so concurrent writers never collide and nothing is committed to the repository.
+Notes, review threads and the running server's address are stored per worktree under `$XDG_STATE_HOME/sidediff/<worktree>/` (`~/.local/state/sidediff/<worktree>/` by default), one file per note, so concurrent writers never collide, nothing is committed to the repository, worktrees of the same repository never see each other's notes, and a review's annotations and threads come back when its server restarts. Versions before 0.3.1 kept them in the repository's shared `<git dir>/sidediff`; those files are left where they are.
 
 ## Review threads
 

@@ -375,7 +375,11 @@ const Announce = Layer.effectDiscard(
     const info = { port: options.port, host: options.host, pid: process.pid };
 
     yield* Effect.acquireRelease(
-      fs.writeFileString(repo.serverFile, JSON.stringify(Schema.encodeSync(ServerInfo)(info))),
+      fs.makeDirectory(repo.state, { recursive: true }).pipe(
+        Effect.andThen(
+          fs.writeFileString(repo.serverFile, JSON.stringify(Schema.encodeSync(ServerInfo)(info))),
+        ),
+      ),
       () =>
         fs.readFileString(repo.serverFile).pipe(
           Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(ServerInfo))),
