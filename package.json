@@ -1,6 +1,6 @@
 {
   "name": "sidediff",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "GitHub-style diff review in the browser, with a live notes column for humans and agents",
   "license": "MIT",
   "type": "module",
