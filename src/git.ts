@@ -11,6 +11,7 @@ export class Git extends Context.Service<
   {
     readonly run: (cwd: string, args: readonly string[]) => Effect.Effect<string, GitFailed>;
     readonly repoRoot: (cwd: string) => Effect.Effect<string, GitFailed>;
+    readonly gitDir: (cwd: string) => Effect.Effect<string, GitFailed>;
     readonly branch: (cwd: string) => Effect.Effect<string>;
     readonly diff: (cwd: string, range: readonly string[]) => Effect.Effect<string, GitFailed>;
     readonly sides: (
@@ -64,6 +65,7 @@ export class Git extends Context.Service<
       return {
         run,
         repoRoot: (cwd) => trimmed(cwd, ['rev-parse', '--show-toplevel']),
+        gitDir: (cwd) => trimmed(cwd, ['rev-parse', '--absolute-git-dir']),
         branch: (cwd) => trimmed(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).pipe(Effect.orElseSucceed(() => 'HEAD')),
         diff: (cwd, range) =>
           run(cwd, ['-c', 'core.quotepath=false', 'diff', '--no-color', '--no-ext-diff', '--find-renames', ...range]),

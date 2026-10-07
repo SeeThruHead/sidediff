@@ -3,7 +3,7 @@ import { type KeyboardEvent, memo, useCallback, useEffect, useLayoutEffect, useM
 
 import { isComment } from '../src/protocol';
 import { readFile, replyToThread, resolveThread, startThread, toComment } from './client';
-import type { FilePatch, Note } from './patch';
+import { type FilePatch, type Note, isLineInDiff } from './patch';
 import type { PaletteName } from './themes';
 import { diffCss, palettes } from './themes';
 
@@ -128,6 +128,22 @@ const InlineThread = ({ note }: { note: Note }) => {
   );
 };
 
+export const OutdatedComments = ({ comments }: { comments: readonly Note[] }) => (
+  <div className="outdated-comments">
+    {comments.map((note) => (
+      <div key={note.id} className="outdated-comment">
+        <div className="outdated-label">
+          <span className="badge badge-outdated">Outdated</span>
+          <span className="outdated-location">
+            {note.side === 'deletions' ? 'old ' : ''}line {note.line} is no longer in the diff
+          </span>
+        </div>
+        <InlineThread note={note} />
+      </div>
+    ))}
+  </div>
+);
+
 const InlineComposer = ({ onSubmit, onCancel }: { onSubmit: (body: string) => void; onCancel: () => void }) => {
   const [draft, setDraft] = useState('');
   const input = useRef<HTMLTextAreaElement | null>(null);
@@ -244,7 +260,15 @@ export const FileSection = memo(function FileSection({
   const [placements, setPlacements] = useState<readonly Placement[]>([]);
   const [composer, setComposer] = useState<Composer | null>(null);
   const annotations = useMemo(() => notes.filter((note) => !isComment(note)), [notes]);
-  const comments = useMemo(() => notes.filter(isComment), [notes]);
+  const allComments = useMemo(() => notes.filter(isComment), [notes]);
+  const comments = useMemo(
+    () => allComments.filter((note) => isLineInDiff(file.patch, note.side, note.line)),
+    [allComments, file.patch],
+  );
+  const outdatedComments = useMemo(
+    () => allComments.filter((note) => !isLineInDiff(file.patch, note.side, note.line)),
+    [allComments, file.patch],
+  );
   const [near, setNear] = useState(false);
   const bodyHeight = useRef<number | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -395,9 +419,9 @@ export const FileSection = memo(function FileSection({
         </button>
         {file.status !== 'modified' && <span className={`badge badge-${file.status}`}>{file.status}</span>}
         <span className="spacer" />
-        {comments.length > 0 && (
+        {allComments.length > 0 && (
           <span className="note-count">
-            {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
+            {allComments.length} {allComments.length === 1 ? 'comment' : 'comments'}
           </span>
         )}
         {annotations.length > 0 && <span className="note-count">{annotations.length} notes</span>}
@@ -410,6 +434,9 @@ export const FileSection = memo(function FileSection({
           Viewed
         </label>
       </div>
+      {!collapsed && showComments && outdatedComments.length > 0 && (
+        <OutdatedComments comments={outdatedComments} />
+      )}
       {!collapsed && !mounted && <div className="file-placeholder" style={{ height: estimatedHeight }} />}
       {!collapsed && mounted && (
         <div ref={bodyRef} className={showNotes ? 'file-body with-notes' : 'file-body'}>

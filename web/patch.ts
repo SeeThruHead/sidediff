@@ -42,3 +42,27 @@ export const splitPatch = (patch: string): FilePatch[] =>
     .split(/^(?=diff --git )/m)
     .filter((chunk) => chunk.startsWith('diff --git '))
     .map((chunk) => toFilePatch(chunk.endsWith('\n') ? chunk : `${chunk}\n`));
+
+type HunkRange = { readonly start: number; readonly count: number };
+
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+
+const rangeOf = (start: string | undefined, count: string | undefined): HunkRange => ({
+  start: Number(start ?? 0),
+  count: count === undefined ? 1 : Number(count),
+});
+
+const hunkRanges = (patch: string) =>
+  patch
+    .split('\n')
+    .map((line) => HUNK_HEADER.exec(line))
+    .filter((match) => match !== null)
+    .map((match) => ({
+      deletions: rangeOf(match[1], match[2]),
+      additions: rangeOf(match[3], match[4]),
+    }));
+
+const contains = (range: HunkRange, line: number) => line >= range.start && line < range.start + range.count;
+
+export const isLineInDiff = (patch: string, side: 'additions' | 'deletions', line: number) =>
+  hunkRanges(patch).some((hunk) => contains(hunk[side], line));

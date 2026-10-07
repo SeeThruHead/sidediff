@@ -2,7 +2,8 @@ import { useAtomValue } from '@effect/atom-react';
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { FileSection } from './FileSection';
+import { isComment } from '../src/protocol';
+import { FileSection, OutdatedComments } from './FileSection';
 import { useGuide } from './guide';
 import { GuideLayer } from './GuideLayer';
 import { type FilePatch, type Note, type Snapshot, splitPatch } from './patch';
@@ -110,6 +111,14 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
       ),
     [snapshot.notes],
   );
+  const commentsOnFilesNoLongerInDiff = useMemo(() => {
+    const inDiff = new Set(allFiles.map((file) => file.path));
+
+    return Object.entries(notesByFile)
+      .filter(([path]) => !inDiff.has(path))
+      .map(([path, notes]) => ({ path, comments: notes.filter(isComment) }))
+      .filter(({ comments }) => comments.length > 0);
+  }, [allFiles, notesByFile]);
   const orderedNotes = useMemo(
     () => files.flatMap((file) => notesByFile[file.path] ?? []),
     [files, notesByFile],
@@ -397,6 +406,19 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
             onFocusNote={focusNote}
           />
         ))}
+        {showComments && commentsOnFilesNoLongerInDiff.length > 0 && (
+          <section className="file outdated-file">
+            <div className="file-header">
+              <span className="file-path">Outdated comments on files no longer in the diff</span>
+            </div>
+            {commentsOnFilesNoLongerInDiff.map(({ path, comments }) => (
+              <div key={path}>
+                <div className="outdated-path">{path}</div>
+                <OutdatedComments comments={comments} />
+              </div>
+            ))}
+          </section>
+        )}
       </main>
       <GuideLayer
         state={guide.state}

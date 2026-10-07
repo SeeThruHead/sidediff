@@ -11,6 +11,7 @@ import {
   Effect,
   FileSystem,
   Layer,
+  Option,
   Path,
   PubSub,
   Ref,
@@ -57,8 +58,11 @@ const isRelevant = (file: string) => {
   if (parts.some((part) => ignoredSegments.has(part))) return false;
   if (parts[0] !== '.git') return true;
 
-  return file.includes('HEAD') || file.includes('refs') || file.endsWith('index');
+  return isGitStateChange(file);
 };
+
+const isGitStateChange = (file: string) =>
+  file.includes('HEAD') || file.includes('refs') || file.endsWith('index');
 
 const versionOf = (patch: string, notes: unknown) =>
   createHash('sha1').update(patch).update(JSON.stringify(notes)).digest('hex').slice(0, 12);
@@ -130,14 +134,28 @@ export class Review extends Context.Service<
         ),
       );
 
-      if (options.watch)
-        yield* fs.watch(repo.root, { recursive: true }).pipe(
+      if (options.watch) {
+        const gitDir = yield* git.gitDir(repo.root).pipe(Effect.option);
+        const gitDirOutsideWorktree = Option.filter(gitDir, (dir) =>
+          path.relative(repo.root, dir).startsWith('..'),
+        );
+
+        const worktreeChanges = fs.watch(repo.root, { recursive: true }).pipe(
           Stream.filter((event) => isRelevant(event.path)),
+        );
+        const linkedWorktreeCommits = Option.match(gitDirOutsideWorktree, {
+          onNone: () => Stream.empty,
+          onSome: (dir) =>
+            fs.watch(dir, { recursive: true }).pipe(Stream.filter((event) => isGitStateChange(event.path))),
+        });
+
+        yield* Stream.merge(worktreeChanges, linkedWorktreeCommits).pipe(
           Stream.debounce(Duration.millis(250)),
           Stream.runForEach(() => refresh),
           Effect.catch((error) => Effect.logWarning('[watch] stopped', error)),
           Effect.forkScoped,
         );
+      }
 
       const commands = yield* PubSub.unbounded<Command>();
       const watchers = yield* Ref.make(0);
