@@ -3,7 +3,7 @@ import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { isComment } from '../src/protocol';
-import { CodePanel, HoverCard } from './code';
+import { CodePanel, HoverCard, LinkCursor } from './code';
 import { FileSection, OutdatedComments } from './FileSection';
 import { useGuide } from './guide';
 import { GuideLayer } from './GuideLayer';
@@ -422,6 +422,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
         )}
       </main>
       <HoverCard />
+      <LinkCursor />
       <CodePanel palette={palette} />
       <GuideLayer
         state={guide.state}

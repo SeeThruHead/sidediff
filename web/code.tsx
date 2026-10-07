@@ -26,6 +26,46 @@ type Panel =
 
 const hoverTargetAtom = Atom.make<HoverTarget | null>(null).pipe(Atom.keepAlive);
 
+const definitionModifierAtom = Atom.make(false).pipe(Atom.keepAlive);
+
+const holdsDefinitionModifier = (event: KeyboardEvent) => event.metaKey || event.ctrlKey;
+
+window.addEventListener('keydown', (event) => registry.set(definitionModifierAtom, holdsDefinitionModifier(event)));
+window.addEventListener('keyup', (event) => registry.set(definitionModifierAtom, holdsDefinitionModifier(event)));
+window.addEventListener('blur', () => registry.set(definitionModifierAtom, false));
+
+const LINK_STYLE = { '--sidediff-link-cursor': 'pointer', '--sidediff-link-decoration': 'underline' } as const;
+
+const useHasDefinition = (target: HoverTarget | null) => {
+  const [found, setFound] = useState<{ readonly target: HoverTarget; readonly linked: boolean } | null>(null);
+
+  useEffect(() => {
+    if (target === null) return;
+
+    void definitionAt(target.at)
+      .catch(() => [])
+      .then((locations) => setFound({ target, linked: locations.length > 0 }));
+  }, [target]);
+
+  return found !== null && found.target === target && found.linked;
+};
+
+export const LinkCursor = () => {
+  const held = useAtomValue(definitionModifierAtom);
+  const target = useAtomValue(hoverTargetAtom);
+  const linked = useHasDefinition(held ? target : null);
+  const active = held && linked;
+
+  useEffect(() => {
+    const root = document.documentElement.style;
+    Object.entries(LINK_STYLE).forEach(([name, value]) =>
+      active ? root.setProperty(name, value) : root.removeProperty(name),
+    );
+  }, [active]);
+
+  return null;
+};
+
 const panelAtom = Atom.make<Panel | null>(null).pipe(Atom.keepAlive);
 
 const HOVER_DELAY_MS = 300;

@@ -135,6 +135,10 @@ export const diffCss = (p: Base16) => `
     from { box-shadow: inset 4px 0 0 ${p.base0A}, inset 0 0 0 999px color-mix(in srgb, ${p.base0A} 22%, transparent); }
     to { box-shadow: inset 4px 0 0 transparent, inset 0 0 0 999px transparent; }
   }
+  [data-char]:hover {
+    cursor: var(--sidediff-link-cursor, auto);
+    text-decoration: var(--sidediff-link-decoration, none);
+  }
   ::highlight(sidediff-error) {
     text-decoration: wavy underline ${p.base08};
     text-decoration-skip-ink: none;
