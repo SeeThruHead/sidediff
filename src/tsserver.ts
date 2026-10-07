@@ -24,6 +24,8 @@ const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 
 const REQUEST_TIMEOUT = '2 minutes';
 
+const UNTRUNCATED_HOVER_LENGTH = 1_000_000;
+
 const without = <K, V>(entries: ReadonlyMap<K, V>, key: K): ReadonlyMap<K, V> =>
   new Map([...entries].filter(([candidate]) => candidate !== key));
 
@@ -123,6 +125,10 @@ export class TsServer extends Context.Service<
           });
           yield* Ref.update(synced, (all) => new Map([...all, [file, content]]));
         });
+
+        yield* request('configure', { preferences: { maximumHoverLength: UNTRUNCATED_HOVER_LENGTH } }).pipe(
+          Effect.catch((error) => Effect.logWarning('[tsserver] configure failed', error)),
+        );
 
         return TsServer.of({ request, sync });
       }),

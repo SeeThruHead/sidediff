@@ -805,7 +805,8 @@ kbd {
 .hover-card {
   position: fixed;
   z-index: 60;
-  max-width: 540px;
+  width: max-content;
+  max-width: calc(100vw - 16px);
   max-height: 50vh;
   overflow: auto;
   padding: 8px 10px;

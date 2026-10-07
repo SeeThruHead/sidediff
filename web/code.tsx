@@ -1,7 +1,7 @@
 import { useAtomValue } from '@effect/atom-react';
 import { File } from '@pierre/diffs/react';
 import { Atom } from 'effect/reactivity';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { CodeLocation, CodePosition, HoverInfo } from '../src/protocol';
 import { definitionAt, hoverAt, isInDiff, readSource, referencesAt, registry, showInDiff } from './client';
@@ -98,6 +98,11 @@ const useHoverInfo = (target: HoverTarget | null) => {
   return [shown, setShown] as const;
 };
 
+const PAGE_MARGIN = 8;
+
+const leftWithinPage = (anchor: number, width: number) =>
+  Math.max(PAGE_MARGIN, Math.min(anchor, window.innerWidth - width - PAGE_MARGIN));
+
 export const HoverCard = () => {
   const target = useAtomValue(hoverTargetAtom);
   const [shown, setShown] = useHoverInfo(target);
@@ -111,16 +116,27 @@ export const HoverCard = () => {
     return () => window.clearTimeout(timer);
   }, [target, overCard, setShown]);
 
+  const card = useRef<HTMLDivElement | null>(null);
+  const [left, setLeft] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (shown === null) return setLeft(null);
+    if (card.current === null) return;
+
+    setLeft(leftWithinPage(shown.target.rect.left, card.current.offsetWidth));
+  }, [shown]);
+
   if (shown === null) return null;
 
   const { rect, at } = shown.target;
   const below = rect.bottom + 6;
-  const style = below > window.innerHeight * 0.6 ? { bottom: window.innerHeight - rect.top + 6 } : { top: below };
+  const vertical = below > window.innerHeight * 0.6 ? { bottom: window.innerHeight - rect.top + 6 } : { top: below };
 
   return (
     <div
+      ref={card}
       className="hover-card"
-      style={{ ...style, left: Math.min(rect.left, window.innerWidth - 560) }}
+      style={{ ...vertical, left: left ?? rect.left, visibility: left === null ? 'hidden' : 'visible' }}
       onMouseEnter={() => setOverCard(true)}
       onMouseLeave={() => {
         setOverCard(false);
