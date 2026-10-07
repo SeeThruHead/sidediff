@@ -301,7 +301,8 @@ export const FileSection = memo(function FileSection({
     if (section === null) return;
 
     const observer = new IntersectionObserver(
-      ([entry]) => {
+      (entries) => {
+        const entry = entries.at(-1);
         if (entry === undefined) return;
         if (!entry.isIntersecting && bodyRef.current) bodyHeight.current = bodyRef.current.offsetHeight;
         setNear(entry.isIntersecting);
