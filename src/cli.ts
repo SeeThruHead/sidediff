@@ -8,7 +8,15 @@ import { createRequire } from 'node:module';
 
 import { Git } from './git.js';
 import { Notes } from './notes.js';
-import { type Command as ViewCommand, NoteBatch, SidediffRpcs, Steps } from './protocol.js';
+import {
+  type CodeLocation,
+  type CodePosition,
+  type HoverInfo,
+  type Command as ViewCommand,
+  NoteBatch,
+  SidediffRpcs,
+  Steps,
+} from './protocol.js';
 import { Repo } from './repo.js';
 import { ServerInfo, freePort, serverLayer } from './server.js';
 
@@ -21,6 +29,12 @@ class NoServer extends Schema.TaggedError<NoServer>()('NoServer', { serverFile: 
 class BadLocation extends Schema.TaggedError<BadLocation>()('BadLocation', { value: Schema.String }) {
   override get message() {
     return `cannot read location ${this.value}, expected <file>[:line[-end]]`;
+  }
+}
+
+class BadPosition extends Schema.TaggedError<BadPosition>()('BadPosition', { value: Schema.String }) {
+  override get message() {
+    return `cannot read position ${this.value}, expected <file>:<line>:<column>`;
   }
 }
 
@@ -138,6 +152,52 @@ const where = Command.make('where', {}, () =>
     withClient,
   ),
 ).pipe(Command.withDescription('what the reader is looking at'));
+
+const position = Argument.String('position').pipe(Argument.withDescription('<file>:<line>:<column>'));
+
+const parsePosition = Effect.fnUntraced(function* (value: string): Effect.fn.Return<CodePosition, BadPosition> {
+  const match = /^(.+):(\d+):(\d+)$/.exec(value);
+  if (match?.[1] === undefined) return yield* new BadPosition({ value });
+
+  return { path: match[1], line: Number(match[2]), offset: Number(match[3]) };
+});
+
+const formatLocation = (found: CodeLocation) =>
+  `${found.path}:${found.line}:${found.offset}${found.isDefinition ? '  (definition)' : ''}  ${found.preview}`;
+
+const formatHover = (info: HoverInfo) =>
+  [info.display, info.documentation, ...info.tags.map((tag) => `@${tag.name} ${tag.text}`)]
+    .filter((part) => part !== '')
+    .join('\n\n');
+
+const printLocations = (found: readonly CodeLocation[]) =>
+  found.length === 0
+    ? Console.log('nothing found')
+    : Effect.forEach(found, (entry) => Console.log(formatLocation(entry)), { discard: true });
+
+const hover = Command.make('hover', { position }, ({ position }) =>
+  parsePosition(position).pipe(
+    Effect.flatMap((at) => Client.use((client) => client.Hover(at))),
+    Effect.flatMap((info) => Console.log(info === null ? 'no type information here' : formatHover(info))),
+    withClient,
+  ),
+).pipe(Command.withDescription("type information at <file>:<line>:<column>, from the repository's TypeScript"));
+
+const definition = Command.make('definition', { position }, ({ position }) =>
+  parsePosition(position).pipe(
+    Effect.flatMap((at) => Client.use((client) => client.Definition(at))),
+    Effect.flatMap(printLocations),
+    withClient,
+  ),
+).pipe(Command.withDescription('where the symbol at <file>:<line>:<column> is defined'));
+
+const references = Command.make('references', { position }, ({ position }) =>
+  parsePosition(position).pipe(
+    Effect.flatMap((at) => Client.use((client) => client.References(at))),
+    Effect.flatMap(printLocations),
+    withClient,
+  ),
+).pipe(Command.withDescription('every use of the symbol at <file>:<line>:<column>'));
 
 const listen = Command.make(
   'listen',
@@ -372,6 +432,9 @@ const sidediff = Command.make(
     back,
     goto,
     where,
+    hover,
+    definition,
+    references,
     listen,
     threads,
     thread,

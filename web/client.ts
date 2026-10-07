@@ -1,9 +1,18 @@
 import { BrowserSocket } from '@effect/platform-browser';
 import { Duration, Effect, Layer, Predicate, Schedule, Stream } from 'effect';
-import { Atom, AtomRegistry, AtomRpc } from 'effect/reactivity';
+import { Atom, AtomRegistry, AtomRpc, type AsyncResult } from 'effect/reactivity';
 import { RpcClient, RpcSerialization } from 'effect/rpc';
 
-import { type Command, type Side, SidediffRpcs, type Snapshot, type View } from '../src/protocol';
+import {
+  type CodeLocation,
+  type CodePosition,
+  type Command,
+  type HoverInfo,
+  type Side,
+  SidediffRpcs,
+  type Snapshot,
+  type View,
+} from '../src/protocol';
 
 const socketUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/rpc`;
 
@@ -88,6 +97,67 @@ export const readFile = (side: 'old' | 'new', path: string): Promise<string> => 
     ),
   );
 };
+
+const positionOf = (key: string): CodePosition => {
+  const [, path, line, offset] = JSON.parse(key) as [string, string, number, number];
+  return { path, line, offset };
+};
+
+const positionKey = (at: CodePosition) => JSON.stringify([currentDiffVersion(), at.path, at.line, at.offset]);
+
+const LANGUAGE_TTL = Duration.minutes(2);
+
+const hoverAtom = Atom.family((key: string) =>
+  SidediffClient.runtime
+    .atom(SidediffClient.use((client) => client('Hover', positionOf(key))))
+    .pipe(Atom.setIdleTTL(LANGUAGE_TTL)),
+);
+
+const definitionAtom = Atom.family((key: string) =>
+  SidediffClient.runtime
+    .atom(SidediffClient.use((client) => client('Definition', positionOf(key))))
+    .pipe(Atom.setIdleTTL(LANGUAGE_TTL)),
+);
+
+const referencesAtom = Atom.family((key: string) =>
+  SidediffClient.runtime
+    .atom(SidediffClient.use((client) => client('References', positionOf(key))))
+    .pipe(Atom.setIdleTTL(LANGUAGE_TTL)),
+);
+
+const sourceAtom = Atom.family((key: string) => {
+  const [, path] = JSON.parse(key) as [string, string];
+
+  return SidediffClient.runtime
+    .atom(SidediffClient.use((client) => client('Source', { path })))
+    .pipe(Atom.setIdleTTL(Duration.minutes(10)));
+});
+
+const ask = <A, E>(atom: Atom.Atom<AsyncResult.AsyncResult<A, E>>) =>
+  Effect.runPromise(AtomRegistry.getResult(registry, atom));
+
+export const hoverAt = (at: CodePosition): Promise<HoverInfo | null> => ask(hoverAtom(positionKey(at)));
+
+export const definitionAt = (at: CodePosition): Promise<readonly CodeLocation[]> =>
+  ask(definitionAtom(positionKey(at)));
+
+export const referencesAt = (at: CodePosition): Promise<readonly CodeLocation[]> =>
+  ask(referencesAtom(positionKey(at)));
+
+export const readSource = (path: string): Promise<string> =>
+  ask(sourceAtom(JSON.stringify([currentDiffVersion(), path])));
+
+export const isInDiff = (path: string) => {
+  const snapshot = registry.get(snapshotAtom);
+  if (snapshot._tag !== 'Success') return false;
+
+  return snapshot.value?.patch.includes(`\n+++ b/${path}\n`) ?? false;
+};
+
+const sendAtom = Atom.keepAlive(SidediffClient.mutation('Send'));
+
+export const showInDiff = (path: string, line: number) =>
+  registry.set(sendAtom, { payload: { command: { type: 'show', file: path, start: line, side: 'additions' } } });
 
 export const readFileSide = (path: string, side: Side): Promise<string | null> =>
   readFile(side === 'deletions' ? 'old' : 'new', path).catch(() => null);

@@ -149,7 +149,54 @@ export class FileMissing extends Schema.TaggedError<FileMissing>()('FileMissing'
   path: Schema.String,
 }) {}
 
+const Column = Schema.Int.check(Schema.isGreaterThan(0));
+
+const codePositionFields = { path: Schema.NonEmptyString, line: Line, offset: Column };
+
+export const CodePosition = Schema.Struct(codePositionFields);
+export type CodePosition = typeof CodePosition.Type;
+
+export const HoverInfo = Schema.Struct({
+  display: Schema.String,
+  documentation: Schema.String,
+  tags: Schema.Array(Schema.Struct({ name: Schema.String, text: Schema.String })),
+});
+export type HoverInfo = typeof HoverInfo.Type;
+
+export const CodeLocation = Schema.Struct({
+  path: Schema.String,
+  inRepo: Schema.Boolean,
+  line: Line,
+  offset: Column,
+  endLine: Line,
+  endOffset: Column,
+  preview: Schema.String,
+  isDefinition: Schema.Boolean,
+});
+export type CodeLocation = typeof CodeLocation.Type;
+
+export class LanguageUnavailable extends Schema.TaggedError<LanguageUnavailable>()('LanguageUnavailable', {
+  path: Schema.String,
+  reason: Schema.String,
+}) {
+  override get message() {
+    return `${this.path}: ${this.reason}`;
+  }
+}
+
 export const SidediffRpcs = RpcGroup.make(
+  Rpc.make('Hover', { payload: codePositionFields, success: Schema.NullOr(HoverInfo), error: LanguageUnavailable }),
+  Rpc.make('Definition', {
+    payload: codePositionFields,
+    success: Schema.Array(CodeLocation),
+    error: LanguageUnavailable,
+  }),
+  Rpc.make('References', {
+    payload: codePositionFields,
+    success: Schema.Array(CodeLocation),
+    error: LanguageUnavailable,
+  }),
+  Rpc.make('Source', { payload: { path: Schema.NonEmptyString }, success: Schema.String, error: FileMissing }),
   Rpc.make('Snapshots', { success: Snapshot, stream: true }),
   Rpc.make('File', {
     payload: { side: Schema.Literals(['old', 'new']), path: Schema.NonEmptyString },

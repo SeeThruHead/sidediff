@@ -801,3 +801,128 @@ kbd {
   font-size: 12.5px;
   color: var(--text);
 }
+
+.hover-card {
+  position: fixed;
+  z-index: 60;
+  max-width: 540px;
+  max-height: 50vh;
+  overflow: auto;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.hover-display {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.hover-docs,
+.hover-tag {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+}
+
+.hover-tag span {
+  color: var(--accent);
+}
+
+.hover-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-muted);
+}
+
+.hover-actions button kbd {
+  margin-left: 4px;
+  color: var(--muted);
+}
+
+.code-panel {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(760px, 55vw);
+  overflow: auto;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgb(0 0 0 / 0.35);
+}
+
+.code-panel-close {
+  position: sticky;
+  top: 8px;
+  float: right;
+  margin: 8px;
+  z-index: 1;
+}
+
+.code-panel-body {
+  padding: 12px;
+}
+
+.code-panel-title {
+  margin: 0 0 10px;
+  color: var(--text-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.code-panel-status {
+  padding: 12px;
+  color: var(--muted);
+}
+
+.reference-file {
+  margin-bottom: 12px;
+}
+
+.reference-path {
+  padding: 4px 0;
+  color: var(--accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.reference {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 3px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.reference:hover {
+  background: var(--panel-2);
+}
+
+.reference-line {
+  min-width: 36px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.reference code {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

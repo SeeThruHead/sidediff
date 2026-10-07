@@ -3,6 +3,7 @@ import { type KeyboardEvent, memo, useCallback, useEffect, useLayoutEffect, useM
 
 import { isComment } from '../src/protocol';
 import { readFile, replyToThread, resolveThread, startThread, toComment } from './client';
+import { tokenHandlers } from './code';
 import { type FilePatch, type Note, isLineInDiff } from './patch';
 import type { PaletteName } from './themes';
 import { diffCss, palettes } from './themes';
@@ -306,6 +307,7 @@ export const FileSection = memo(function FileSection({
       hunkSeparators: 'line-info' as const,
       expansionLineCount: 20,
       loadDiffFiles: () => loadSides(file),
+      ...tokenHandlers(file.path),
       enableGutterUtility: true,
       onGutterUtilityClick: (range: { end: number; side?: 'additions' | 'deletions' }) =>
         setComposer({ side: range.side === 'deletions' ? 'deletions' : 'additions', line: range.end }),
