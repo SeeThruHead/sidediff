@@ -180,6 +180,39 @@ const groupByFile = (locations: readonly CodeLocation[]) =>
     return groups.map((group) => (group === existing ? [group[0], [...group[1], location]] : group));
   }, []);
 
+const shadowRootsIn = (container: Element | null): readonly ShadowRoot[] =>
+  container === null
+    ? []
+    : [...container.querySelectorAll('*')].flatMap((element) => (element.shadowRoot === null ? [] : [element.shadowRoot]));
+
+const isNewSideRow = (row: Element) => row.getAttribute('data-line-type') !== 'change-deletion';
+
+const renderedRow = (path: string, line: number) =>
+  [...shadowRootsIn(document.getElementById(`file-${path}`)), ...shadowRootsIn(document.querySelector('.code-panel'))]
+    .flatMap((root) => [...root.querySelectorAll(`[data-line="${line}"]`)])
+    .find(isNewSideRow);
+
+const RenderedLine = ({ location }: { location: CodeLocation }) => {
+  const target = useRef<HTMLElement | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useLayoutEffect(() => {
+    const row = renderedRow(location.path, location.line);
+    if (row === undefined) return setCopied(false);
+    if (target.current === null) return;
+
+    target.current.replaceChildren(...[...row.childNodes].map((node) => node.cloneNode(true)));
+    setCopied(true);
+  }, [location]);
+
+  return (
+    <>
+      <code ref={target} hidden={!copied} />
+      {!copied && <code>{location.preview}</code>}
+    </>
+  );
+};
+
 const References = ({ symbol, locations }: { symbol: string; locations: readonly CodeLocation[] | null }) => (
   <div className="code-panel-body">
     <h3 className="code-panel-title">{symbol}</h3>
@@ -195,7 +228,7 @@ const References = ({ symbol, locations }: { symbol: string; locations: readonly
             onClick={() => goTo(entry)}
           >
             <span className="reference-line">{entry.line}</span>
-            <code>{entry.preview}</code>
+            <RenderedLine location={entry} />
             {entry.isDefinition && <span className="badge">definition</span>}
           </button>
         ))}
