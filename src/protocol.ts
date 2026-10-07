@@ -156,12 +156,23 @@ const codePositionFields = { path: Schema.NonEmptyString, line: Line, offset: Co
 export const CodePosition = Schema.Struct(codePositionFields);
 export type CodePosition = typeof CodePosition.Type;
 
-export const HoverInfo = Schema.Struct({
-  display: Schema.String,
-  documentation: Schema.String,
-  tags: Schema.Array(Schema.Struct({ name: Schema.String, text: Schema.String })),
-});
+export const HoverInfo = Schema.Struct({ markdown: Schema.String });
 export type HoverInfo = typeof HoverInfo.Type;
+
+export const Severity = Schema.Literals(['error', 'warning', 'info', 'hint']);
+export type Severity = typeof Severity.Type;
+
+export const Diagnostic = Schema.Struct({
+  source: Schema.String,
+  severity: Severity,
+  message: Schema.String,
+  code: Schema.optionalKey(Schema.String),
+  line: Line,
+  column: Column,
+  endLine: Line,
+  endColumn: Column,
+});
+export type Diagnostic = typeof Diagnostic.Type;
 
 export const CodeLocation = Schema.Struct({
   path: Schema.String,
@@ -197,6 +208,11 @@ export const SidediffRpcs = RpcGroup.make(
     error: LanguageUnavailable,
   }),
   Rpc.make('Source', { payload: { path: Schema.NonEmptyString }, success: Schema.String, error: FileMissing }),
+  Rpc.make('Diagnostics', {
+    payload: { path: Schema.NonEmptyString },
+    success: Schema.Array(Diagnostic),
+    stream: true,
+  }),
   Rpc.make('Snapshots', { success: Snapshot, stream: true }),
   Rpc.make('File', {
     payload: { side: Schema.Literals(['old', 'new']), path: Schema.NonEmptyString },

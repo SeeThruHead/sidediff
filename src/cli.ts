@@ -11,6 +11,7 @@ import { Notes } from './notes.js';
 import {
   type CodeLocation,
   type CodePosition,
+  type Diagnostic,
   type HoverInfo,
   type Command as ViewCommand,
   NoteBatch,
@@ -165,10 +166,30 @@ const parsePosition = Effect.fnUntraced(function* (value: string): Effect.fn.Ret
 const formatLocation = (found: CodeLocation) =>
   `${found.path}:${found.line}:${found.offset}${found.isDefinition ? '  (definition)' : ''}  ${found.preview}`;
 
-const formatHover = (info: HoverInfo) =>
-  [info.display, info.documentation, ...info.tags.map((tag) => `@${tag.name} ${tag.text}`)]
-    .filter((part) => part !== '')
-    .join('\n\n');
+const formatHover = (info: HoverInfo) => info.markdown;
+
+const formatDiagnostic = (path: string, found: Diagnostic) =>
+  `${path}:${found.line}:${found.column}  ${found.severity}  ${found.source}${found.code === undefined ? '' : `(${found.code})`}  ${found.message}`;
+
+const diagnostics = Command.make(
+  'diagnostics',
+  {
+    path: Argument.String('file'),
+    wait: Flag.Int('wait').pipe(Flag.withDefault(20), Flag.withDescription('seconds to let language servers report')),
+  },
+  ({ path, wait }) =>
+    Client.use((client) =>
+      client.Diagnostics({ path }).pipe(Stream.interruptWhen(Effect.sleep(Duration.seconds(wait))), Stream.runLast),
+    ).pipe(
+      Effect.flatMap((last) => {
+        const found = Option.getOrElse(last, (): readonly Diagnostic[] => []);
+        if (found.length === 0) return Console.log('no problems reported');
+
+        return Effect.forEach(found, (entry) => Console.log(formatDiagnostic(path, entry)), { discard: true });
+      }),
+      withClient,
+    ),
+).pipe(Command.withDescription('type errors and lint findings for <file> from every language server that applies'));
 
 const printLocations = (found: readonly CodeLocation[]) =>
   found.length === 0
@@ -435,6 +456,7 @@ const sidediff = Command.make(
     hover,
     definition,
     references,
+    diagnostics,
     listen,
     threads,
     thread,

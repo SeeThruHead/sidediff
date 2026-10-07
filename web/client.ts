@@ -7,6 +7,7 @@ import {
   type CodeLocation,
   type CodePosition,
   type Command,
+  type Diagnostic,
   type HoverInfo,
   type Side,
   SidediffRpcs,
@@ -152,6 +153,24 @@ export const isInDiff = (path: string) => {
   if (snapshot._tag !== 'Success') return false;
 
   return snapshot.value?.patch.includes(`\n+++ b/${path}\n`) ?? false;
+};
+
+export const diagnosticsAtom = Atom.family((path: string) =>
+  SidediffClient.runtime
+    .atom(
+      resilient(Stream.unwrap(SidediffClient.use((client) => Effect.succeed(client('Diagnostics', { path }))))).pipe(
+        Stream.scan(
+          (): readonly Diagnostic[] => [],
+          (latest, event) => (event.kind === 'value' ? event.value : latest),
+        ),
+      ),
+    )
+    .pipe(Atom.setIdleTTL(Duration.minutes(5))),
+);
+
+export const currentDiagnostics = (path: string): readonly Diagnostic[] => {
+  const result = registry.get(diagnosticsAtom(path));
+  return result._tag === 'Success' ? result.value : [];
 };
 
 const sendAtom = Atom.keepAlive(SidediffClient.mutation('Send'));

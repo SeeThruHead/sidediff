@@ -12,7 +12,8 @@ import { Notes } from './notes.js';
 import { NoteUnsaved, SidediffRpcs } from './protocol.js';
 import { Repo } from './repo.js';
 import { Review, ServeOptions } from './review.js';
-import { TsServers } from './tsserver.js';
+import { LspServers } from './lsp.js';
+import { LanguageServerCatalog } from './servers.js';
 
 export const ServerInfo = Schema.Struct({ port: Schema.Int, host: Schema.String, pid: Schema.Int });
 
@@ -29,6 +30,7 @@ const RpcHandlers = SidediffRpcs.toLayer(
       Definition: (at) => language.definition(at),
       References: (at) => language.references(at),
       Source: ({ path }) => review.source(path),
+      Diagnostics: ({ path }) => language.diagnostics(path),
       Snapshots: () => review.snapshots,
       File: ({ side, path }) => review.file(side, path),
       Send: ({ command }) => Effect.map(review.send(command), (delivered) => ({ delivered })),
@@ -111,7 +113,7 @@ const Announce = Layer.effectDiscard(
 export const serverLayer = (options: Context.Service.Shape<typeof ServeOptions>) =>
   HttpRouter.serve(Layer.mergeAll(RpcRoute, StaticFiles), { disableListenLog: true, disableLogger: true }).pipe(
     Layer.provide(LanguageService.layer),
-    Layer.provide(TsServers.layer),
+    Layer.provide(Layer.mergeAll(LspServers.layer, LanguageServerCatalog.layer)),
     Layer.provide(Review.layer),
     Layer.merge(Announce),
     Layer.provide(NodeHttpServer.layer(createServer, {

@@ -1,7 +1,8 @@
 import { PatchDiff } from '@pierre/diffs/react';
 import { type KeyboardEvent, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { isComment } from '../src/protocol';
+import { type Diagnostic, isComment } from '../src/protocol';
+import { useDiagnostics, useSquiggles } from './squiggles';
 import { readFile, replyToThread, resolveThread, startThread, toComment } from './client';
 import { tokenHandlers } from './code';
 import { type FilePatch, type Note, isLineInDiff } from './patch';
@@ -224,6 +225,26 @@ const NoteCard = ({
   </article>
 );
 
+const countOf = (diagnostics: readonly Diagnostic[], severity: Diagnostic['severity']) =>
+  diagnostics.filter((diagnostic) => diagnostic.severity === severity).length;
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+
+const FileDiagnostics = ({ path, sectionRef }: { path: string; sectionRef: { readonly current: HTMLElement | null } }) => {
+  const diagnostics = useDiagnostics(path);
+  useSquiggles(sectionRef, path, diagnostics);
+
+  const errors = countOf(diagnostics, 'error');
+  const warnings = countOf(diagnostics, 'warning');
+
+  return (
+    <>
+      {errors > 0 && <span className="problem-count error">{plural(errors, 'error')}</span>}
+      {warnings > 0 && <span className="problem-count warning">{plural(warnings, 'warning')}</span>}
+    </>
+  );
+};
+
 export const FileSection = memo(function FileSection({
   file,
   notes,
@@ -421,6 +442,7 @@ export const FileSection = memo(function FileSection({
         </button>
         {file.status !== 'modified' && <span className={`badge badge-${file.status}`}>{file.status}</span>}
         <span className="spacer" />
+        {mounted && <FileDiagnostics path={file.path} sectionRef={sectionRef} />}
         {allComments.length > 0 && (
           <span className="note-count">
             {allComments.length} {allComments.length === 1 ? 'comment' : 'comments'}

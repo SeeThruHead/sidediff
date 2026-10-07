@@ -3,8 +3,18 @@ import { File } from '@pierre/diffs/react';
 import { Atom } from 'effect/reactivity';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import type { CodeLocation, CodePosition, HoverInfo } from '../src/protocol';
-import { definitionAt, hoverAt, isInDiff, readSource, referencesAt, registry, showInDiff } from './client';
+import type { CodeLocation, CodePosition, Diagnostic, HoverInfo } from '../src/protocol';
+import {
+  currentDiagnostics,
+  definitionAt,
+  hoverAt,
+  isInDiff,
+  readSource,
+  referencesAt,
+  registry,
+  showInDiff,
+} from './client';
+import { isAt } from './squiggles';
 import { type PaletteName, diffCss, palettes } from './themes';
 
 type HoverTarget = { readonly at: CodePosition; readonly rect: DOMRect };
@@ -78,18 +88,52 @@ export const tokenHandlers = (path: string) => ({
   },
 });
 
-const symbolOf = (info: HoverInfo) => info.display.split('\n')[0] ?? info.display;
+type Block = { readonly kind: 'code' | 'text' | 'rule'; readonly text: string };
+
+const FENCE = /```[\w-]*\n([\s\S]*?)```/;
+
+const textBlocks = (part: string): readonly Block[] =>
+  part.split(/\n\s*-{3,}\s*\n/).flatMap((chunk, index) => [
+    ...(index > 0 ? [{ kind: 'rule' as const, text: '' }] : []),
+    ...(chunk.trim() === '' ? [] : [{ kind: 'text' as const, text: chunk.trim() }]),
+  ]);
+
+const blocksOf = (markdown: string): readonly Block[] =>
+  markdown
+    .split(FENCE)
+    .flatMap((part, index) => (index % 2 === 1 ? [{ kind: 'code' as const, text: part.trimEnd() }] : textBlocks(part)));
+
+const symbolOf = (info: HoverInfo | null) => {
+  const code = blocksOf(info?.markdown ?? '').find((block) => block.kind === 'code');
+  return code?.text.split('\n')[0] ?? 'References';
+};
+
+type Shown = {
+  readonly target: HoverTarget;
+  readonly info: HoverInfo | null;
+  readonly problems: readonly Diagnostic[];
+};
+
+const problemsAt = (at: CodePosition) =>
+  currentDiagnostics(at.path).filter((diagnostic) => isAt(diagnostic, at.line, at.offset));
+
+const shownFor = (target: HoverTarget, info: HoverInfo | null): Shown | null => {
+  const problems = problemsAt(target.at);
+  if (info === null && problems.length === 0) return null;
+
+  return { target, info, problems };
+};
 
 const useHoverInfo = (target: HoverTarget | null) => {
-  const [shown, setShown] = useState<{ readonly target: HoverTarget; readonly info: HoverInfo } | null>(null);
+  const [shown, setShown] = useState<Shown | null>(null);
 
   useEffect(() => {
     if (target === null) return;
 
     const timer = window.setTimeout(() => {
       void hoverAt(target.at)
-        .then((info) => setShown(info === null ? null : { target, info }))
-        .catch(() => setShown(null));
+        .catch(() => null)
+        .then((info) => setShown(shownFor(target, info)));
     }, HOVER_DELAY_MS);
 
     return () => window.clearTimeout(timer);
@@ -143,13 +187,25 @@ export const HoverCard = () => {
         setShown(null);
       }}
     >
-      <pre className="hover-display">{shown.info.display}</pre>
-      {shown.info.documentation !== '' && <p className="hover-docs">{shown.info.documentation}</p>}
-      {shown.info.tags.map((tag, index) => (
-        <p key={`${tag.name}-${index}`} className="hover-tag">
-          <span>@{tag.name}</span> {tag.text}
+      {shown.problems.map((problem, index) => (
+        <p key={`${problem.source}-${index}`} className={`hover-problem ${problem.severity}`}>
+          <span className="hover-problem-source">
+            {problem.source}
+            {problem.code === undefined ? '' : `(${problem.code})`}
+          </span>{' '}
+          {problem.message}
         </p>
       ))}
+      {blocksOf(shown.info?.markdown ?? '').map((block, index) => {
+        if (block.kind === 'code') return <pre key={index} className="hover-display">{block.text}</pre>;
+        if (block.kind === 'rule') return <hr key={index} className="hover-rule" />;
+
+        return (
+          <p key={index} className="hover-docs">
+            {block.text}
+          </p>
+        );
+      })}
       <div className="hover-actions">
         <button
           onClick={() => {

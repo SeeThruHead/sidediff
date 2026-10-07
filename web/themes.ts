@@ -135,6 +135,21 @@ export const diffCss = (p: Base16) => `
     from { box-shadow: inset 4px 0 0 ${p.base0A}, inset 0 0 0 999px color-mix(in srgb, ${p.base0A} 22%, transparent); }
     to { box-shadow: inset 4px 0 0 transparent, inset 0 0 0 999px transparent; }
   }
+  ::highlight(sidediff-error) {
+    text-decoration: wavy underline ${p.base08};
+    text-decoration-skip-ink: none;
+  }
+  ::highlight(sidediff-warning) {
+    text-decoration: wavy underline ${p.base0A};
+    text-decoration-skip-ink: none;
+  }
+  ::highlight(sidediff-info) {
+    text-decoration: wavy underline ${p.base0D};
+    text-decoration-skip-ink: none;
+  }
+  ::highlight(sidediff-hint) {
+    text-decoration: dotted underline ${p.base03};
+  }
   ::highlight(sidediff-text) {
     background-color: color-mix(in srgb, ${p.base0A} 45%, transparent);
     color: ${p.base07 ?? '#ffffff'};
