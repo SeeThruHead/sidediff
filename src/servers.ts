@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
-import { Config, Context, Effect, FileSystem, Layer, Option, Path } from 'effect';
+import { Config, Context, Effect, FileSystem, Layer, Option, Path, Schema } from 'effect';
 
 import { type LaunchSpec, fileUri } from './lsp.js';
 import { Repo } from './repo.js';
@@ -44,6 +44,20 @@ const ESLINT_CONFIGS = [
 
 const BIOME_CONFIGS = ['biome.json', 'biome.jsonc'];
 
+const CustomServer = Schema.Struct({
+  id: Schema.NonEmptyString,
+  extensions: Schema.Array(Schema.String),
+  languageId: Schema.NonEmptyString,
+  command: Schema.NonEmptyString,
+  args: Schema.optionalKey(Schema.Array(Schema.String)),
+  rootMarkers: Schema.optionalKey(Schema.Array(Schema.String)),
+  initializationOptions: Schema.optionalKey(Schema.Unknown),
+  settings: Schema.optionalKey(Schema.Unknown),
+});
+type CustomServer = typeof CustomServer.Type;
+
+const CustomServers = Schema.fromJsonString(Schema.Struct({ servers: Schema.Array(CustomServer) }));
+
 const eslintSettings = (root: string, flat: boolean) => ({
   validate: 'on',
   run: 'onType',
@@ -80,6 +94,25 @@ export class LanguageServerCatalog extends Context.Service<
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const logDirectory = yield* Effect.orDie(Config.option(Config.String('SIDEDIFF_LSP_LOG')));
+      const home = yield* Effect.orDie(Config.String('HOME'));
+      const configHome = yield* Effect.orDie(
+        Config.NonEmptyString('XDG_CONFIG_HOME').pipe(Config.withDefault(path.join(home, '.config'))),
+      );
+
+      const readCustom = (file: string) =>
+        fs.readFileString(file).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(CustomServers)),
+          Effect.map((config) => config.servers),
+          Effect.catchTag('SchemaError', (error) =>
+            Effect.as(Effect.logWarning(`[lsp] ignoring ${file}`, error.message), []),
+          ),
+          Effect.orElseSucceed((): readonly CustomServer[] => []),
+        );
+
+      const custom = (yield* Effect.forEach(
+        [path.join(configHome, 'sidediff', 'servers.json'), path.join(repo.root, '.sidediff', 'servers.json')],
+        readCustom,
+      )).flat();
 
       const tsserverLogging = Option.match(logDirectory, {
         onNone: () => ({}),
@@ -106,9 +139,13 @@ export class LanguageServerCatalog extends Context.Service<
       const directoryOf = (found: Option.Option<string>, depth: number) =>
         Option.map(found, (file) => path.resolve(file, ...Array.from({ length: depth }, () => '..')));
 
+      const customFor = (extension: string) => custom.filter((server) => server.extensions.includes(extension));
+
       const languageOf = (file: string) => {
         const extension = path.extname(file);
-        return Option.fromNullishOr(JS_LANGUAGES[extension] ?? OTHER_LANGUAGES[extension]);
+        const builtIn = JS_LANGUAGES[extension] ?? OTHER_LANGUAGES[extension];
+
+        return Option.fromNullishOr(builtIn ?? customFor(extension)[0]?.languageId);
       };
 
       const typescript = Effect.fnUntraced(function* (from: string) {
@@ -179,13 +216,29 @@ export class LanguageServerCatalog extends Context.Service<
       const rust = projectServer('rust-analyzer', 'rust-analyzer', 'Cargo.toml');
       const go = projectServer('gopls', 'gopls', 'go.mod');
 
-      const detectorsFor = (extension: string) => {
+      const configured = (server: CustomServer) =>
+        Effect.fnUntraced(function* (from: string) {
+          const marker = yield* nearest(from, server.rootMarkers ?? []);
+
+          return Option.some<LaunchSpec>({
+            id: server.id,
+            command: server.command,
+            args: server.args ?? [],
+            root: Option.match(marker, { onNone: () => repo.root, onSome: (file) => path.dirname(file) }),
+            ...(server.initializationOptions === undefined ? {} : { initializationOptions: server.initializationOptions }),
+            ...(server.settings === undefined ? {} : { settings: server.settings }),
+          });
+        });
+
+      const builtInFor = (extension: string) => {
         if (JS_LANGUAGES[extension] !== undefined) return [typescript, eslint, oxlint, biome];
         if (extension === '.rs') return [rust];
         if (extension === '.go') return [go];
 
         return [];
       };
+
+      const detectorsFor = (extension: string) => [...builtInFor(extension), ...customFor(extension).map(configured)];
 
       const serversFor = Effect.fn('LanguageServerCatalog.serversFor')(function* (file: string) {
         const from = path.dirname(file);

@@ -232,7 +232,7 @@ const plural = (count: number, word: string) => `${count} ${word}${count === 1 ?
 
 const FileDiagnostics = ({ path, sectionRef }: { path: string; sectionRef: { readonly current: HTMLElement | null } }) => {
   const diagnostics = useDiagnostics(path);
-  useSquiggles(sectionRef, path, diagnostics);
+  useSquiggles(sectionRef, `diff:${path}`, diagnostics);
 
   const errors = countOf(diagnostics, 'error');
   const warnings = countOf(diagnostics, 'warning');

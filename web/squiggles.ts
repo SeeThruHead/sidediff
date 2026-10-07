@@ -90,10 +90,10 @@ const rangesFor = (root: ShadowRoot, diagnostic: Diagnostic): readonly Range[] =
     },
   );
 
-const withoutPath = (painted: Painted, path: string): Painted =>
-  new Map([...painted].filter(([candidate]) => candidate !== path));
+const withoutKey = (painted: Painted, key: string): Painted =>
+  new Map([...painted].filter(([candidate]) => candidate !== key));
 
-const repaint = (section: HTMLElement, path: string, diagnostics: readonly Diagnostic[]) => {
+const repaint = (section: HTMLElement, key: string, diagnostics: readonly Diagnostic[]) => {
   const root = shadowRootOf(section);
   const ranges =
     root === null
@@ -102,7 +102,7 @@ const repaint = (section: HTMLElement, path: string, diagnostics: readonly Diagn
           rangesFor(root, diagnostic).map((range) => [diagnostic.severity, range] as const),
         );
 
-  registry.set(paintedAtom, new Map([...withoutPath(registry.get(paintedAtom), path), [path, ranges]]));
+  registry.set(paintedAtom, new Map([...withoutKey(registry.get(paintedAtom), key), [key, ranges]]));
 };
 
 export const useDiagnostics = (path: string): readonly Diagnostic[] => {
@@ -112,14 +112,14 @@ export const useDiagnostics = (path: string): readonly Diagnostic[] => {
 
 export const useSquiggles = (
   sectionRef: { readonly current: HTMLElement | null },
-  path: string,
+  key: string,
   diagnostics: readonly Diagnostic[],
 ) => {
   useEffect(() => {
     const section = sectionRef.current;
     if (section === null) return;
 
-    const schedule = () => requestAnimationFrame(() => repaint(section, path, diagnostics));
+    const schedule = () => requestAnimationFrame(() => repaint(section, key, diagnostics));
     const observed = new MutationObserver(schedule);
     const watchShadow = () => {
       const root = shadowRootOf(section);
@@ -138,9 +138,9 @@ export const useSquiggles = (
     return () => {
       hosts.disconnect();
       observed.disconnect();
-      registry.set(paintedAtom, withoutPath(registry.get(paintedAtom), path));
+      registry.set(paintedAtom, withoutKey(registry.get(paintedAtom), key));
     };
-  }, [sectionRef, path, diagnostics]);
+  }, [sectionRef, key, diagnostics]);
 };
 
 export const isAt = (diagnostic: Diagnostic, line: number, column: number) => {

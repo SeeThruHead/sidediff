@@ -14,7 +14,7 @@ import {
   registry,
   showInDiff,
 } from './client';
-import { isAt } from './squiggles';
+import { isAt, useDiagnostics, useSquiggles } from './squiggles';
 import { type PaletteName, diffCss, palettes } from './themes';
 
 type HoverTarget = { readonly at: CodePosition; readonly rect: DOMRect };
@@ -293,6 +293,11 @@ const References = ({ symbol, locations }: { symbol: string; locations: readonly
   </div>
 );
 
+const PanelSquiggles = ({ path, bodyRef }: { path: string; bodyRef: { readonly current: HTMLElement | null } }) => {
+  useSquiggles(bodyRef, `panel:${path}`, useDiagnostics(path));
+  return null;
+};
+
 const SourceFile = ({ path, line, palette }: { path: string; line: number; palette: PaletteName }) => {
   const [contents, setContents] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -343,6 +348,7 @@ const SourceFile = ({ path, line, palette }: { path: string; line: number; palet
         lineAnnotations={[{ lineNumber: line, metadata: undefined }]}
         renderAnnotation={() => <div data-code-target />}
       />
+      <PanelSquiggles path={path} bodyRef={body} />
     </div>
   );
 };
