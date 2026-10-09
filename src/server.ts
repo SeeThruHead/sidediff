@@ -15,6 +15,7 @@ import {
   Path,
   PubSub,
   Ref,
+  Schedule,
   Schema,
   Stream,
   SubscriptionRef,
@@ -22,6 +23,7 @@ import {
 import { HttpRouter, HttpServerResponse } from 'effect/http';
 import { RpcSerialization, RpcServer } from 'effect/rpc';
 
+import { Explainer } from './explainer.js';
 import { Git } from './git.js';
 import { Notes } from './notes.js';
 import {
@@ -46,6 +48,7 @@ export class ServeOptions extends Context.Service<
     readonly port: number;
     readonly host: string;
     readonly watch: boolean;
+    readonly explainer: string | null;
   }
 >()('sidediff/ServeOptions') {}
 
@@ -100,6 +103,15 @@ export class Review extends Context.Service<
       const options = yield* ServeOptions;
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
+      const explainer = yield* Explainer;
+
+      if (options.explainer !== null) {
+        yield* explainer
+          .set(options.explainer)
+          .pipe(Effect.catch((error) => Effect.logWarning('[explainer] not loaded', error.message)));
+      }
+
+      yield* explainer.poll.pipe(Effect.repeat(Schedule.spaced(Duration.seconds(1))), Effect.forkScoped);
 
       const readPatch = Effect.map(
         Effect.all([git.diff(repo.root, options.range), git.branch(repo.root)], { concurrency: 'unbounded' }),
@@ -115,8 +127,8 @@ export class Review extends Context.Service<
         Effect.catch((error) => Effect.logWarning('[refresh] diff failed', error)),
       );
 
-      const snapshots = Stream.zipLatest(SubscriptionRef.changes(diff), notes.changes).pipe(
-        Stream.mapEffect(([{ patch, branch }, current]) =>
+      const snapshots = Stream.zipLatestAll(SubscriptionRef.changes(diff), notes.changes, explainer.changes).pipe(
+        Stream.mapEffect(([{ patch, branch }, current, explaining]) =>
           Effect.map(
             DateTime.now,
             (now): Snapshot => ({
@@ -125,10 +137,11 @@ export class Review extends Context.Service<
               range: options.range,
               patch,
               notes: current,
-              version: versionOf(patch, current),
+              version: versionOf(patch, [current, explaining]),
               diffVersion: versionOf(patch, []),
               watching: options.watch,
               updatedAt: DateTime.formatIso(now),
+              explainer: explaining,
             }),
           ),
         ),
@@ -329,6 +342,7 @@ const RpcHandlers = SidediffRpcs.toLayer(
   Effect.gen(function* () {
     const review = yield* Review;
     const notes = yield* Notes;
+    const explainer = yield* Explainer;
 
     return SidediffRpcs.of({
       Snapshots: () => review.snapshots,
@@ -345,6 +359,7 @@ const RpcHandlers = SidediffRpcs.toLayer(
       ToComment: ({ noteId }) => review.toComment(noteId),
       Threads: ({ after }) => review.threads(after),
       Refresh: () => review.refresh,
+      SetExplainer: ({ path }) => explainer.set(path),
       ListNotes: () => notes.list,
       AddNotes: ({ notes: inputs }) => notes.add(inputs).pipe(Effect.mapError(unsavedError)),
       RemoveNote: ({ id }) => notes.remove(id).pipe(Effect.mapError(unsavedError)),
@@ -369,7 +384,22 @@ const StaticFiles = HttpRouter.add('GET', '/*', (request) =>
   }),
 );
 
-const RpcRoute = RpcServer.layerHttp({ group: SidediffRpcs, path: '/rpc', protocol: 'websocket' }).pipe(
+const ExplainerPage = HttpRouter.add('GET', '/explainer', () =>
+  Effect.gen(function* () {
+    const explainer = yield* Explainer;
+    const file = yield* explainer.path;
+
+    return yield* Option.match(file, {
+      onNone: () => Effect.succeed(HttpServerResponse.empty({ status: 404 })),
+      onSome: (asset) =>
+        HttpServerResponse.file(asset, { headers: { 'cache-control': 'no-store' } }).pipe(
+          Effect.orElseSucceed(() => HttpServerResponse.empty({ status: 404 })),
+        ),
+    });
+  }),
+);
+
+const RpcRoute =RpcServer.layerHttp({ group: SidediffRpcs, path: '/rpc', protocol: 'websocket' }).pipe(
   Layer.provide(RpcHandlers),
   Layer.provide(RpcSerialization.layerNdjson),
 );
@@ -411,8 +441,12 @@ const Announce = Layer.effectDiscard(
 );
 
 export const serverLayer = (options: Context.Service.Shape<typeof ServeOptions>) =>
-  HttpRouter.serve(Layer.mergeAll(RpcRoute, StaticFiles), { disableListenLog: true, disableLogger: true }).pipe(
+  HttpRouter.serve(Layer.mergeAll(RpcRoute, ExplainerPage, StaticFiles), {
+    disableListenLog: true,
+    disableLogger: true,
+  }).pipe(
     Layer.provide(Review.layer),
+    Layer.provide(Explainer.layer),
     Layer.merge(Announce),
     Layer.provide(NodeHttpServer.layer(createServer, {
         port: options.port,

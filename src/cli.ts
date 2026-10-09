@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { NodeRuntime, NodeServices, NodeSocket } from '@effect/platform-node';
-import { Console, Context, Duration, Effect, FileSystem, Layer, Option, Schema, Stdio, Stream } from 'effect';
+import { Console, Context, Duration, Effect, FileSystem, Layer, Option, Path, Schema, Stdio, Stream } from 'effect';
 import { Argument, Command, Flag } from 'effect/cli';
 import { ChildProcess, ChildProcessSpawner } from 'effect/process';
 import { RpcClient, type RpcClientError, type RpcGroup, RpcSerialization } from 'effect/rpc';
 import { createRequire } from 'node:module';
 
+import { Explainer } from './explainer.js';
 import { Git } from './git.js';
 import { Notes } from './notes.js';
 import { type Command as ViewCommand, NoteBatch, SidediffRpcs, Steps } from './protocol.js';
@@ -114,6 +115,33 @@ const say = Command.make(
   ({ text, speak }) => send({ type: 'say', text: text.join(' '), speak }),
 ).pipe(Command.withDescription('show a caption'));
 
+const section = Command.make('section', { anchor: Argument.String('anchor') }, ({ anchor }) =>
+  send({ type: 'section', anchor }),
+).pipe(Command.withDescription('open the explainer panel at the element with this id'));
+
+const explainer = Command.make(
+  'explainer',
+  {
+    file: Argument.String('file').pipe(Argument.optional),
+    clear: Flag.Boolean('clear').pipe(Flag.withDefault(false)),
+  },
+  ({ file, clear }) =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const chosen = Option.map(file, (value) => path.resolve(value));
+
+      if (Option.isNone(chosen) && !clear) return yield* Console.error('pass an HTML file, or --clear to remove it');
+
+      const target = clear ? null : Option.getOrNull(chosen);
+      const info = yield* serverOr(
+        (client) => client.SetExplainer({ path: target }),
+        Explainer.use((current) => current.set(target)).pipe(Effect.provide(Explainer.layer)),
+      );
+
+      yield* Console.log(info === null ? 'explainer removed' : `explainer: ${info.title}`);
+    }),
+).pipe(Command.withDescription('show an HTML explainer beside the diff, or remove it with --clear'));
+
 const clear = Command.make('clear', {}, () => send({ type: 'clear' })).pipe(
   Command.withDescription('remove highlights and popovers'),
 );
@@ -176,10 +204,11 @@ const noteAdd = Command.make(
     summary: Flag.String('summary'),
     rationale: optionalText('rationale'),
     author: optionalText('author'),
+    explainer: optionalText('explainer'),
   },
-  ({ file, newLine, oldLine, summary, rationale, author }) =>
+  ({ file, newLine, oldLine, summary, rationale, author, explainer }) =>
     Effect.gen(function* () {
-      const input = { filePath: file, summary, ...defined({ newLine, oldLine, rationale, author }) };
+      const input = { filePath: file, summary, ...defined({ newLine, oldLine, rationale, author, explainer }) };
       const [note] = yield* serverOr(
         (client) => client.AddNotes({ notes: [input] }),
         Notes.use((notes) => notes.add([input])),
@@ -203,7 +232,11 @@ const noteApply = Command.make('apply', {}, () =>
 
     yield* Console.log(`added ${added.length} notes`);
   }),
-).pipe(Command.withDescription('add a batch from stdin: {"comments":[{filePath,newLine|oldLine,summary,...}]}'));
+).pipe(
+  Command.withDescription(
+    'add a batch from stdin: {"comments":[{filePath,newLine|oldLine,summary,rationale?,explainer?}]}; explainer is an element id in the explainer page',
+  ),
+);
 
 const noteList = Command.make(
   'list',
@@ -215,7 +248,11 @@ const noteList = Command.make(
 
       if (json) return yield* Console.log(JSON.stringify(shown, null, 2));
 
-      yield* Effect.forEach(shown, (note) => Console.log(`${note.id}  ${note.filePath}:${note.line}  ${note.summary}`));
+      yield* Effect.forEach(shown, (note) =>
+        Console.log(
+          `${note.id}  ${note.filePath}:${note.line}  ${note.summary}${note.explainer === undefined ? '' : `  §${note.explainer}`}`,
+        ),
+      );
     }),
 ).pipe(Command.withDescription('list notes'));
 
@@ -339,14 +376,17 @@ const sidediff = Command.make(
     host: Flag.String('host').pipe(Flag.withDefault('127.0.0.1')),
     open: Flag.Boolean('open').pipe(Flag.withDefault(true)),
     watch: Flag.Boolean('watch').pipe(Flag.withDefault(true)),
+    explainer: optionalText('explainer'),
   },
-  ({ range, port, host, open, watch }) =>
+  ({ range, port, host, open, watch, explainer }) =>
     Effect.gen(function* () {
+      const path = yield* Path.Path;
       const chosen = yield* freePort(port, host);
       const url = `http://${host}:${chosen}`;
+      const page = explainer === undefined ? null : path.resolve(explainer);
 
       yield* Layer.launch(
-        serverLayer({ range, port: chosen, host, watch }).pipe(
+        serverLayer({ range, port: chosen, host, watch, explainer: page }).pipe(
           Layer.merge(
             Layer.effectDiscard(
               Effect.andThen(
@@ -367,6 +407,8 @@ const sidediff = Command.make(
     explain,
     say,
     clear,
+    explainer,
+    section,
     tour,
     next,
     back,

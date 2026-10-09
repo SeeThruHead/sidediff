@@ -35,7 +35,7 @@ sidediff HEAD~1 --no-watch    # a fixed range, no watching
 
 Options: `--port` (default 4977, falls back to the next free port), `--host` (default 127.0.0.1), `--no-open`, `--no-watch`. Any other arguments are passed to `git diff`.
 
-Keys: `s` split or unified, `a` show or hide notes, `n` / `p` next or previous note.
+Keys: `s` split or unified, `a` show or hide notes, `n` / `p` next or previous note, `e` show or hide the explainer.
 
 ## Notes
 
@@ -65,6 +65,24 @@ sidediff resolve <id> [--reopen]
 ```
 
 `sidediff threads` prints `seq  kind  note-id  file:line  author: text` and skips the agent's own events unless `--all` is passed. Pass the last `seq` as `--after` to pick up where you left off. Threads started in the page are attributed to `git config user.name`.
+
+## Explainer
+
+An HTML document that explains the change can sit beside the diff:
+
+```sh
+sidediff explainer review/explainer.html      # load it into the running server
+sidediff explainer --clear                    # remove it
+sidediff origin/main...HEAD --explainer review/explainer.html   # or load it at start
+sidediff section data-flow                    # open the panel at the element with id="data-flow"
+```
+
+On a screen at least 1500px wide the explainer is a column left of the file tree; narrower, it opens as an overlay. `e` toggles it and its right edge drags to resize. It reloads when the file changes and keeps its scroll position. The choice is remembered per worktree.
+
+Links go both ways:
+
+- A note with `"explainer": "<id>"` (or `note add --explainer <id>`) shows a `§` link that opens the explainer at that element.
+- An element in the explainer with `data-file="src/app.ts" data-line="42"` (and `data-side="old"` for the old side) scrolls the diff to that line when clicked. Put it on a link to the code on GitHub and the same document still works outside sidediff. Other outbound links open in a new tab.
 
 ## Guided tours and conversation
 

@@ -31,6 +31,7 @@ export const Note = Schema.Struct({
   replies: Schema.optionalKey(Schema.Array(Reply)),
   resolved: Schema.optionalKey(Schema.Boolean),
   kind: Schema.optionalKey(NoteKind),
+  explainer: Schema.optionalKey(Schema.String),
 });
 export type Note = typeof Note.Type;
 
@@ -42,6 +43,7 @@ export const NoteInput = Schema.Struct({
   rationale: Schema.optionalKey(Schema.String),
   author: Schema.optionalKey(Schema.String),
   kind: Schema.optionalKey(NoteKind),
+  explainer: Schema.optionalKey(Schema.NonEmptyString),
 });
 export type NoteInput = typeof NoteInput.Type;
 
@@ -49,6 +51,12 @@ export const NoteBatch = Schema.Union([
   Schema.Array(NoteInput),
   Schema.Struct({ comments: Schema.Array(NoteInput) }),
 ]);
+
+export const ExplainerInfo = Schema.Struct({
+  title: Schema.String,
+  version: Schema.String,
+});
+export type ExplainerInfo = typeof ExplainerInfo.Type;
 
 export const Snapshot = Schema.Struct({
   repo: Schema.String,
@@ -60,6 +68,7 @@ export const Snapshot = Schema.Struct({
   diffVersion: Schema.String,
   watching: Schema.Boolean,
   updatedAt: Schema.String,
+  explainer: Schema.NullOr(ExplainerInfo),
 });
 export type Snapshot = typeof Snapshot.Type;
 
@@ -88,6 +97,7 @@ export const Step = Schema.Union([
   Schema.Struct({ type: Schema.Literal('highlight'), ...targetFields }),
   Schema.Struct({ type: Schema.Literal('explain'), speak: Schema.optionalKey(Schema.Boolean), ...explanationFields }),
   Schema.Struct({ type: Schema.Literal('say'), text: Schema.String, speak: Schema.optionalKey(Schema.Boolean) }),
+  Schema.Struct({ type: Schema.Literal('section'), anchor: Schema.NonEmptyString }),
   Schema.Struct({ type: Schema.Literal('clear') }),
 ]);
 export type Step = typeof Step.Type;
@@ -149,6 +159,14 @@ export class FileMissing extends Schema.TaggedError<FileMissing>()('FileMissing'
   path: Schema.String,
 }) {}
 
+export class ExplainerMissing extends Schema.TaggedError<ExplainerMissing>()('ExplainerMissing', {
+  path: Schema.String,
+}) {
+  override get message() {
+    return `cannot read the explainer at ${this.path}`;
+  }
+}
+
 export const SidediffRpcs = RpcGroup.make(
   Rpc.make('Snapshots', { success: Snapshot, stream: true }),
   Rpc.make('File', {
@@ -187,6 +205,11 @@ export const SidediffRpcs = RpcGroup.make(
     error: Schema.Union([NoteMissing, NoteUnsaved]),
   }),
   Rpc.make('Refresh', {}),
+  Rpc.make('SetExplainer', {
+    payload: { path: Schema.NullOr(Schema.NonEmptyString) },
+    success: Schema.NullOr(ExplainerInfo),
+    error: Schema.Union([ExplainerMissing, NoteUnsaved]),
+  }),
   Rpc.make('ListNotes', { success: Schema.Array(Note) }),
   Rpc.make('AddNotes', { payload: { notes: Schema.Array(NoteInput) }, success: Schema.Array(Note), error: NoteUnsaved }),
   Rpc.make('RemoveNote', { payload: { id: Schema.NonEmptyString }, error: NoteUnsaved }),

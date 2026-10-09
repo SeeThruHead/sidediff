@@ -3,6 +3,7 @@ import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { isComment } from '../src/protocol';
+import { type DiffLink, ExplainerLinks, ExplainerPanel, MIN_WIDTH, type SectionRequest } from './Explainer';
 import { FileSection, OutdatedComments } from './FileSection';
 import { useGuide } from './guide';
 import { GuideLayer } from './GuideLayer';
@@ -45,6 +46,15 @@ const scrollToAnchor = (id: string) =>
 
 const noNotes: readonly Note[] = [];
 
+const savedExplainerWidth = () => {
+  const stored = Number(localStorage.getItem('sidediff:explainer-width'));
+  return Number.isFinite(stored) && stored >= MIN_WIDTH ? stored : 640;
+};
+
+const wideScreen = () => window.matchMedia('(min-width: 1500px)').matches;
+
+const clampExplainerWidth = (x: number) => Math.round(Math.min(Math.max(x, MIN_WIDTH), window.innerWidth - 600));
+
 const savedPalette = (): PaletteName => {
   const stored = localStorage.getItem('sidediff:palette');
   return stored !== null && stored in palettes ? (stored as PaletteName) : 'base16-tomorrow-night-eighties';
@@ -69,6 +79,10 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
   const [filter, setFilter] = useState('');
   const [currentFile, setCurrentFile] = useState<string | null>(null);
   const [pinnedFile, setPinnedFile] = useState<string | null>(null);
+  const [explainerOpen, setExplainerOpen] = useState(wideScreen);
+  const [explainerWidth, setExplainerWidth] = useState(savedExplainerWidth);
+  const [sectionRequest, setSectionRequest] = useState<SectionRequest | null>(null);
+  const hasExplainer = snapshot.explainer !== null;
 
   useEffect(() => {
     const main = document.querySelector('main.files');
@@ -166,7 +180,30 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
     setOpen(path, true);
     setPinnedFile(path);
   }, []);
-  const guide = useGuide(openFile);
+  const openSection = useCallback((anchor: string) => {
+    setExplainerOpen(true);
+    setSectionRequest((current) => ({ anchor, nonce: (current?.nonce ?? 0) + 1 }));
+  }, []);
+  const sectionLinks = useMemo(() => ({ open: openSection, available: hasExplainer }), [openSection, hasExplainer]);
+
+  const resizeExplainer = useCallback((x: number) => {
+    const width = clampExplainerWidth(x);
+    localStorage.setItem('sidediff:explainer-width', String(width));
+    setExplainerWidth(width);
+  }, []);
+
+  const guide = useGuide(openFile, openSection);
+
+  const showFromExplainer = useCallback(
+    (link: DiffLink) =>
+      guide.run({
+        type: 'show',
+        file: link.file,
+        side: link.side,
+        ...(link.line === undefined ? {} : { start: link.line, end: link.line }),
+      }),
+    [guide],
+  );
 
 
   useEffect(() => {
@@ -281,6 +318,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
       if (event.key === 's') setDiffStyle((style) => (style === 'split' ? 'unified' : 'split'));
       if (event.key === 'a') setShowNotes((visible) => !visible);
       if (event.key === 'i') setShowComments((visible) => !visible);
+      if (event.key === 'e' && hasExplainer) setExplainerOpen((visible) => !visible);
       if (event.key === 'Escape') guide.dismiss();
       if (event.key === ']' && guide.state.tour) guide.goTo(guide.state.tour.index + 1);
       if (event.key === '[' && guide.state.tour) guide.goTo(guide.state.tour.index - 1);
@@ -289,7 +327,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [stepNote, guide, voice]);
+  }, [stepNote, guide, voice, hasExplainer]);
 
   const viewedCount = files.filter(isViewed).length;
   const totals = files.reduce(
@@ -297,8 +335,14 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
     { additions: 0, deletions: 0 },
   );
 
+  const explainerShown = hasExplainer && explainerOpen;
+
   return (
-    <div className="app" style={uiVars(palettes[palette]) as React.CSSProperties}>
+    <ExplainerLinks value={sectionLinks}>
+    <div
+      className={explainerShown ? 'app with-explainer' : 'app'}
+      style={{ ...uiVars(palettes[palette]), '--explainer-width': `${explainerWidth}px` } as React.CSSProperties}
+    >
       <header className="topbar">
         <div className="title">
           <strong>{snapshot.repo.split('/').at(-1)}</strong>
@@ -348,6 +392,11 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
           <button onClick={() => setShowComments(!showComments)}>
             {showComments ? 'Hide comments' : 'Show comments'} <kbd>i</kbd>
           </button>
+          {hasExplainer && (
+            <button className={explainerShown ? 'on' : ''} onClick={() => setExplainerOpen(!explainerOpen)}>
+              Explainer <kbd>e</kbd>
+            </button>
+          )}
           <button onClick={() => stepNote(-1)}>
             ↑ <kbd>p</kbd>
           </button>
@@ -368,6 +417,16 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
           </select>
         </div>
       </div>
+      {snapshot.explainer !== null && (
+        <ExplainerPanel
+          info={snapshot.explainer}
+          open={explainerShown}
+          request={sectionRequest}
+          onResize={resizeExplainer}
+          onClose={() => setExplainerOpen(false)}
+          onShow={showFromExplainer}
+        />
+      )}
       <Sidebar
         tree={tree}
         filter={filter}
@@ -430,5 +489,6 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
         onClearCaption={() => guide.run({ type: 'say', text: '' })}
       />
     </div>
+    </ExplainerLinks>
   );
 };

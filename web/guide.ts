@@ -96,7 +96,7 @@ export const scrollToTarget = (target: Target) => {
 
 export const fileContents = readFileSide;
 
-export const useGuide = (openFile: (path: string) => void) => {
+export const useGuide = (openFile: (path: string) => void, openSection: (anchor: string) => void) => {
   const [state, setState] = useState<GuideState>(initial);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -138,6 +138,8 @@ export const useGuide = (openFile: (path: string) => void) => {
         return focus(step);
       }
 
+      if (step.type === 'section') return openSection(step.anchor);
+
       setState((current) => ({
         ...current,
         highlight: step,
@@ -147,7 +149,7 @@ export const useGuide = (openFile: (path: string) => void) => {
       if (step.speak) speak([step.title, step.body].filter(Boolean).join('. '));
       return focus(step);
     },
-    [focus],
+    [focus, openSection],
   );
 
   const goTo = useCallback(

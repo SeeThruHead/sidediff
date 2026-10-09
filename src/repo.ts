@@ -11,6 +11,7 @@ export class Repo extends Context.Service<
     readonly notes: string;
     readonly state: string;
     readonly serverFile: string;
+    readonly explainerFile: string;
   }
 >()('sidediff/Repo') {
   static readonly layer = Layer.effect(
@@ -28,7 +29,13 @@ export class Repo extends Context.Service<
       );
       const state = path.join(stateHome, 'sidediff', worktreeKey(root));
 
-      return { root, notes: path.join(state, 'notes'), state, serverFile: path.join(state, 'server.json') };
+      return {
+        root,
+        notes: path.join(state, 'notes'),
+        state,
+        serverFile: path.join(state, 'server.json'),
+        explainerFile: path.join(state, 'explainer.json'),
+      };
     }),
   );
 }
