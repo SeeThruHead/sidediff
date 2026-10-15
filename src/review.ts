@@ -11,10 +11,12 @@ import {
   Path,
   PubSub,
   Ref,
+  Schedule,
   Stream,
   SubscriptionRef,
 } from 'effect';
 
+import { Explainer } from './explainer.js';
 import { Git } from './git.js';
 import { Notes } from './notes.js';
 import {
@@ -38,6 +40,7 @@ export class ServeOptions extends Context.Service<
     readonly port: number;
     readonly host: string;
     readonly watch: boolean;
+    readonly explainer: string | null;
   }
 >()('sidediff/ServeOptions') {}
 
@@ -91,6 +94,15 @@ export class Review extends Context.Service<
       const options = yield* ServeOptions;
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
+      const explainer = yield* Explainer;
+
+      if (options.explainer !== null) {
+        yield* explainer
+          .set(options.explainer)
+          .pipe(Effect.catch((error) => Effect.logWarning('[explainer] not loaded', error.message)));
+      }
+
+      yield* explainer.poll.pipe(Effect.repeat(Schedule.spaced(Duration.seconds(1))), Effect.forkScoped);
 
       const readPatch = Effect.map(
         Effect.all([git.diff(repo.root, options.range), git.branch(repo.root)], { concurrency: 'unbounded' }),
@@ -106,8 +118,8 @@ export class Review extends Context.Service<
         Effect.catch((error) => Effect.logWarning('[refresh] diff failed', error)),
       );
 
-      const snapshots = Stream.zipLatest(SubscriptionRef.changes(diff), notes.changes).pipe(
-        Stream.mapEffect(([{ patch, branch }, current]) =>
+      const snapshots = Stream.zipLatestAll(SubscriptionRef.changes(diff), notes.changes, explainer.changes).pipe(
+        Stream.mapEffect(([{ patch, branch }, current, explaining]) =>
           Effect.map(
             DateTime.now,
             (now): Snapshot => ({
@@ -116,10 +128,11 @@ export class Review extends Context.Service<
               range: options.range,
               patch,
               notes: current,
-              version: versionOf(patch, current),
+              version: versionOf(patch, [current, explaining]),
               diffVersion: versionOf(patch, []),
               watching: options.watch,
               updatedAt: DateTime.formatIso(now),
+              explainer: explaining,
             }),
           ),
         ),

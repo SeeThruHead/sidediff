@@ -5,6 +5,7 @@ import { type Diagnostic, isComment } from '../src/protocol';
 import { useDiagnostics, useSquiggles } from './squiggles';
 import { readFile, replyToThread, resolveThread, startThread, toComment } from './client';
 import { tokenHandlers } from './code';
+import { SectionLink } from './Explainer';
 import { type FilePatch, type Note, isLineInDiff } from './patch';
 import type { PaletteName } from './themes';
 import { diffCss, palettes } from './themes';
@@ -103,6 +104,7 @@ const InlineThread = ({ note }: { note: Note }) => {
         <span className="comment-author">{note.author}</span>
         <p>{note.summary}</p>
         {note.rationale && note.rationale !== note.summary && <p className="comment-detail">{note.rationale}</p>}
+        {note.explainer && <SectionLink anchor={note.explainer} />}
       </div>
       {replies.map((entry) => (
         <div key={entry.id} className="comment">
@@ -213,6 +215,7 @@ const NoteCard = ({
     </header>
     <h4>{note.summary}</h4>
     {note.rationale && note.rationale !== note.summary && <p>{note.rationale}</p>}
+    {note.explainer && <SectionLink anchor={note.explainer} />}
     <button
       className="annotation-comment"
       onClick={(event) => {

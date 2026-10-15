@@ -3,10 +3,11 @@ import { createServer as createProbe } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
 import { NodeHttpServer } from '@effect/platform-node';
-import { Context, Duration, Effect, FileSystem, Layer, Path, Schema } from 'effect';
+import { Context, Duration, Effect, FileSystem, Layer, Option, Path, Schema } from 'effect';
 import { HttpRouter, HttpServerResponse } from 'effect/http';
 import { RpcSerialization, RpcServer } from 'effect/rpc';
 
+import { Explainer } from './explainer.js';
 import { LanguageService } from './language.js';
 import { Notes } from './notes.js';
 import { NoteUnsaved, SidediffRpcs } from './protocol.js';
@@ -24,6 +25,7 @@ const RpcHandlers = SidediffRpcs.toLayer(
     const review = yield* Review;
     const notes = yield* Notes;
     const language = yield* LanguageService;
+    const explainer = yield* Explainer;
 
     return SidediffRpcs.of({
       Hover: (at) => language.hover(at),
@@ -45,6 +47,7 @@ const RpcHandlers = SidediffRpcs.toLayer(
       ToComment: ({ noteId }) => review.toComment(noteId),
       Threads: ({ after }) => review.threads(after),
       Refresh: () => review.refresh,
+      SetExplainer: ({ path }) => explainer.set(path),
       ListNotes: () => notes.list,
       AddNotes: ({ notes: inputs }) => notes.add(inputs).pipe(Effect.mapError(unsavedError)),
       RemoveNote: ({ id }) => notes.remove(id).pipe(Effect.mapError(unsavedError)),
@@ -66,6 +69,21 @@ const StaticFiles = HttpRouter.add('GET', '/*', (request) =>
     return yield* HttpServerResponse.file(asset, { headers: { 'cache-control': 'no-store' } }).pipe(
       Effect.orElseSucceed(() => HttpServerResponse.empty({ status: 404 })),
     );
+  }),
+);
+
+const ExplainerPage = HttpRouter.add('GET', '/explainer', () =>
+  Effect.gen(function* () {
+    const explainer = yield* Explainer;
+    const file = yield* explainer.path;
+
+    return yield* Option.match(file, {
+      onNone: () => Effect.succeed(HttpServerResponse.empty({ status: 404 })),
+      onSome: (asset) =>
+        HttpServerResponse.file(asset, { headers: { 'cache-control': 'no-store' } }).pipe(
+          Effect.orElseSucceed(() => HttpServerResponse.empty({ status: 404 })),
+        ),
+    });
   }),
 );
 
@@ -111,10 +129,14 @@ const Announce = Layer.effectDiscard(
 );
 
 export const serverLayer = (options: Context.Service.Shape<typeof ServeOptions>) =>
-  HttpRouter.serve(Layer.mergeAll(RpcRoute, StaticFiles), { disableListenLog: true, disableLogger: true }).pipe(
+  HttpRouter.serve(Layer.mergeAll(RpcRoute, ExplainerPage, StaticFiles), {
+    disableListenLog: true,
+    disableLogger: true,
+  }).pipe(
     Layer.provide(LanguageService.layer),
     Layer.provide(Layer.mergeAll(LspServers.layer, LanguageServerCatalog.layer)),
     Layer.provide(Review.layer),
+    Layer.provide(Explainer.layer),
     Layer.merge(Announce),
     Layer.provide(NodeHttpServer.layer(createServer, {
         port: options.port,

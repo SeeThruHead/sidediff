@@ -618,6 +618,123 @@ kbd {
   border-color: var(--accent);
 }
 
+.explainer-link {
+  display: inline-block;
+  margin: 6px 6px 0 0;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(222, 147, 95, 0.1);
+  color: #de935f;
+  font-size: 11.5px;
+  cursor: pointer;
+  text-transform: capitalize;
+}
+
+.explainer-link:hover {
+  border-color: #de935f;
+  color: var(--text-strong);
+}
+
+.app.with-explainer {
+  grid-template-columns: var(--explainer-width, 640px) 260px minmax(0, 1fr);
+}
+
+.explainer {
+  grid-row: 3;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+}
+
+.explainer[hidden] {
+  display: none;
+}
+
+.explainer-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.explainer-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+}
+
+.explainer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.explainer-actions a {
+  color: var(--accent);
+}
+
+.explainer-actions button {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.explainer iframe {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.explainer.dragging iframe {
+  pointer-events: none;
+}
+
+.explainer-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  z-index: 5;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.explainer-resizer:hover,
+.explainer-resizer.dragging {
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+@media (max-width: 1499px) {
+  .app.with-explainer {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .explainer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 50;
+    width: min(var(--explainer-width, 640px), 92vw);
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.35);
+  }
+}
+
 .empty {
   padding: 48px;
   text-align: center;

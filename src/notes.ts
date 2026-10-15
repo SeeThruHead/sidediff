@@ -107,6 +107,7 @@ export class Notes extends Context.Service<
           author: input.author ?? 'agent',
           createdAt: DateTime.formatIso(now),
           ...(input.kind === undefined ? {} : { kind: input.kind }),
+          ...(input.explainer === undefined ? {} : { explainer: input.explainer }),
         } satisfies Note;
       });
 
