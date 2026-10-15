@@ -90,7 +90,7 @@ The reviewer hovers a line and presses `+` to start a thread, replies in threads
 - One listener at a time. Start the next one only after handling the previous one's output.
 - If your harness can run commands in the background and notify you when they finish, use that for step 2 and keep doing other work meanwhile. If it can't, run step 2 with a short `--wait` (60) between other steps of your work, so comments never wait long.
 - Every event gets handled before the next listener starts. A comment that never gets an answer is the worst outcome.
-- If the server restarts, sequence numbers start again from 1. Repeat step 1 (`--after 0 --all`) and check for threads still waiting on you: `sidediff note list --json` shows each note's `replies`; a thread whose last reply isn't yours, and isn't resolved, needs an answer.
+- If the server stops or restarts, a running listener exits with an RPC error; that is not a comment. Sequence numbers start again from 1 after a restart. Repeat step 1 (`--after 0 --all`) and check for threads still waiting on you: `sidediff note list --json` shows each note's `replies`; a thread whose last reply isn't yours, and isn't resolved, needs an answer.
 - `sidediff resolve <note id>` once a thread is settled and the reviewer has agreed; `--reopen` to undo. Usually leave resolving to the reviewer.
 - `sidediff reply` signs as `agent`. Pass `--author <name>` only if the user asks.
 
