@@ -1,11 +1,11 @@
 ---
 name: sidediff
-description: Review a git diff with a human in the sidediff browser view (GitHub-style diff, a notes column, an optional HTML explainer panel, guided tours, type hovers), and answer the review comments they leave on lines of the diff. Use when the user asks to open a diff or PR in sidediff, annotate a diff, walk them through a change, show an explainer beside a diff, look up types in a reviewed change, or when they comment in a running sidediff review.
+description: Review a git diff with a human in the sidediff browser view (GitHub-style diff, a notes column, an optional HTML explainer panel, type hovers), walk them through it stop by stop, and answer the review comments they leave on lines of the diff. Use when the user asks to open a diff or PR in sidediff, annotate a diff, walk them through a change or take them to the next thing to look at, show an explainer beside a diff, look up types in a reviewed change, or when they comment in a running sidediff review.
 ---
 
 # sidediff
 
-`sidediff` serves a git diff in the browser for a human reviewer and gives the agent a CLI to drive that view: notes beside the code, an explainer document beside the diff, highlights and guided tours, type information from the repository's own language servers, and review threads the human starts on any line and the agent answers.
+`sidediff` serves a git diff in the browser for a human reviewer and gives the agent a CLI to drive that view: notes beside the code, an explainer document beside the diff, a guide that takes the reviewer to the code that matters, type information from the repository's own language servers, and review threads the human starts on any line and the agent answers.
 
 The human reads and comments in the browser. The agent works through the CLI. Everything the agent writes appears in the page immediately.
 
@@ -133,45 +133,42 @@ sidediff explainer --clear
 sidediff section <id>               # open the panel scrolled to the element with this id
 ```
 
-- Give every section an `id`; notes, tours and `sidediff section` point at them.
+- Give every section an `id`; notes, `sidediff guide --section` and `sidediff section` point at them.
 - Links inside the explainer can scroll the diff: `<a href="<link to the code>" data-file="<path>" data-line="<line>">`, plus `data-side="old"` for a deleted line. Inside sidediff the click scrolls the diff; opened on its own the link still works. Other links open in a new tab.
 - Wide screens show it as a column left of the file tree; narrow ones as an overlay. The reviewer toggles it with `e`.
 - Scripts run in the panel, so diagrams and step-through widgets work. Test anything with a renderer (Mermaid and similar) in a browser before handing it over; a parse error leaves the section blank.
 
-## 5. Drive the view
+## 5. Walk the reviewer through it
 
-Point the reviewer at things while you talk.
+When the user asks you to walk them through the change, or to take them to the next thing they should look at, guide them one stop at a time:
+
+```sh
+sidediff guide <file>:<line>[-end] "<why they should care about this code>" --section <explainer id>
+```
+
+One command does the whole stop, and none of it covers the diff:
+
+- scrolls the diff to the lines and selects them (`--text <substring>` also marks a word in them, `--side old` points at deleted lines);
+- leaves a comment under the lines with your sentence (`--detail "..."` adds a longer paragraph). It is an ordinary thread: the reviewer replies in it, and your listener (section 2) picks the reply up;
+- scrolls the explainer panel beside the diff to `--section`, so the background for this code is in view next to it.
+
+How to guide well:
+
+- Order the stops by what matters most: bugs first, then decisions someone has to make, then risky or subtle code, then the rest. Skip what is obvious from reading.
+- The sentence says why *they* should care (what breaks, who it affects, what to decide), not what the code does line by line. Check it against the code before you send it.
+- Point at the narrowest range that shows it, usually the call or condition at fault, not the whole function.
+- After each stop, tell the user in chat in two or three lines what they are looking at and what you want from them, then wait. Move to the next stop when they ask ("next"), or answer in the thread if they comment there.
+- Every stop leaves its comment behind, so the diff keeps a trail of why each place mattered. Remove one with `sidediff note rm <id>` if it turned out wrong.
+
+Smaller tools for pointing while you talk:
 
 ```sh
 sidediff show src/a.ts:120                       # scroll there (--side old for the old side)
 sidediff highlight src/a.ts:120-140 --text "retry" # select lines, mark a substring
-sidediff explain src/a.ts:120-140 --title "Retry loop" --body "Before: ... Now: ..."
 sidediff say "Next, the error handling."        # caption only
-sidediff clear                                    # remove highlights, popovers, captions
+sidediff clear                                    # remove highlights and captions
 sidediff where                                    # what the reviewer is looking at now (JSON)
 ```
-
-`explain` opens a zoomed popover over the code, which hides the diff behind it: say in the title what kind of change it is, and in the body what it was before and what it is now.
-
-### Guided tours
-
-```sh
-sidediff tour tour.json
-sidediff next | sidediff back | sidediff goto <n>
-```
-
-```json
-[
-  { "type": "section", "anchor": "overview" },
-  { "type": "show", "file": "src/a.ts", "start": 120, "side": "additions" },
-  { "type": "highlight", "file": "src/a.ts", "start": 120, "end": 140, "side": "additions", "text": "retry" },
-  { "type": "explain", "file": "src/a.ts", "start": 120, "end": 140, "side": "additions", "title": "1. ADDED retry loop", "body": "..." },
-  { "type": "say", "text": "That's the change." },
-  { "type": "clear" }
-]
-```
-
-Tour fields are not the CLI flag names: `side` is `"additions"` or `"deletions"` and is required on file steps; `start`/`end` are line numbers; `section` takes `anchor`. A malformed file fails with only the usage text; run `sidediff tour tour.json --log-level all` to see the schema error. The reviewer steps with `]` and `[`.
 
 ## 6. Types, definitions, references, diagnostics
 
@@ -194,7 +191,7 @@ Other languages: add servers in `~/.config/sidediff/servers.json` or the reposit
 
 ## Keyboard (for telling the reviewer)
 
-`+` on a hovered line starts a thread, `n`/`p` next/previous note, `a` show/hide the notes column, `i` show/hide inline comments, `s` split/unified, `e` explainer panel, `]`/`[` tour steps, `Esc` dismiss popovers.
+`+` on a hovered line starts a thread, `n`/`p` next/previous note, `a` show/hide the notes column, `i` show/hide inline comments, `s` split/unified, `e` explainer panel, `Esc` clear the highlight.
 
 ## Voice (optional, off unless the user asks)
 

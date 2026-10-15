@@ -1,21 +1,19 @@
 import { useAtomMount, useAtomSubscribe } from '@effect/atom-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { Command, Explanation, Side, Step, Target } from '../src/protocol';
+import type { Command, Guide, Side, Step, Target } from '../src/protocol';
 import type { Atom } from 'effect/reactivity';
 
-import { commandAtom, readFileSide } from './client';
+import { commandAtom } from './client';
 
-export type { Explanation, Side, Target };
+export type { Side, Target };
 
-export interface GuideState {
+export type GuideState = {
   readonly highlight: Target | null;
-  readonly explanation: Explanation | null;
   readonly caption: string | null;
-  readonly tour: { readonly steps: readonly Step[]; readonly index: number } | null;
-}
+};
 
-const initial: GuideState = { highlight: null, explanation: null, caption: null, tour: null };
+const initial: GuideState = { highlight: null, caption: null };
 
 const speak = (text: string) => {
   if (!('speechSynthesis' in window) || text.trim().length === 0) return;
@@ -94,9 +92,13 @@ export const scrollToTarget = (target: Target) => {
   return false;
 };
 
-export const fileContents = readFileSide;
+export type GuideActions = {
+  readonly openFile: (path: string) => void;
+  readonly openSection: (anchor: string) => void;
+  readonly revealNote: (id: string) => void;
+};
 
-export const useGuide = (openFile: (path: string) => void, openSection: (anchor: string) => void) => {
+export const useGuide = ({ openFile, openSection, revealNote }: GuideActions) => {
   const [state, setState] = useState<GuideState>(initial);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -115,12 +117,23 @@ export const useGuide = (openFile: (path: string) => void, openSection: (anchor:
     [openFile],
   );
 
+  const guideTo = useCallback(
+    (command: Guide) => {
+      const { type: _type, note, anchor, ...target } = command;
+      setState(() => ({ highlight: target, caption: null }));
+      revealNote(note);
+      focus(target);
+      if (anchor !== undefined) openSection(anchor);
+    },
+    [focus, openSection, revealNote],
+  );
+
   const runStep = useCallback(
     (step: Step) => {
       if (step.type === 'clear') {
         applyTextHighlight(null);
         window.speechSynthesis?.cancel();
-        return setState((current) => ({ ...initial, tour: current.tour }));
+        return setState(() => initial);
       }
 
       if (step.type === 'say') {
@@ -128,59 +141,19 @@ export const useGuide = (openFile: (path: string) => void, openSection: (anchor:
         return setState((current) => ({ ...current, caption: step.text }));
       }
 
-      if (step.type === 'show') {
-        setState((current) => ({ ...current, explanation: null }));
-        return focus(step);
-      }
-
-      if (step.type === 'highlight') {
-        setState((current) => ({ ...current, highlight: step, explanation: null }));
-        return focus(step);
-      }
-
       if (step.type === 'section') return openSection(step.anchor);
 
-      setState((current) => ({
-        ...current,
-        highlight: step,
-        explanation: step,
-        caption: step.speak ? (step.body ?? null) : current.caption,
-      }));
-      if (step.speak) speak([step.title, step.body].filter(Boolean).join('. '));
+      if (step.type === 'show') return focus(step);
+
+      setState((current) => ({ ...current, highlight: step }));
       return focus(step);
     },
     [focus, openSection],
   );
 
-  const goTo = useCallback(
-    (index: number) => {
-      const tour = stateRef.current.tour;
-      const step = tour?.steps[index];
-      if (tour === null || step === undefined) return;
-
-      setState((current) => ({ ...current, tour: { ...tour, index } }));
-      runStep(step);
-    },
-    [runStep],
-  );
-
   const run = useCallback(
-    (command: Command) => {
-      const tour = stateRef.current.tour;
-
-      if (command.type === 'next') return tour ? goTo(tour.index + 1) : undefined;
-      if (command.type === 'back') return tour ? goTo(tour.index - 1) : undefined;
-      if (command.type === 'goto') return goTo(command.index);
-      if (command.type !== 'tour') return runStep(command);
-
-      command.steps.forEach((step) => {
-        if (step.type === 'explain') void fileContents(step.file, step.side);
-      });
-      setState((current) => ({ ...current, tour: { steps: command.steps, index: 0 } }));
-      const first = command.steps[0];
-      if (first !== undefined) runStep(first);
-    },
-    [runStep, goTo],
+    (command: Command) => (command.type === 'guide' ? guideTo(command) : runStep(command)),
+    [guideTo, runStep],
   );
 
   const runRef = useRef(run);
@@ -198,8 +171,10 @@ export const useGuide = (openFile: (path: string) => void, openSection: (anchor:
     return () => clearTimeout(id);
   }, [state.highlight]);
 
-  const dismiss = useCallback(() => setState((current) => ({ ...current, explanation: null })), []);
-  const endTour = useCallback(() => setState(() => initial), []);
+  const dismiss = useCallback(() => {
+    applyTextHighlight(null);
+    setState(() => initial);
+  }, []);
 
-  return { state, run, goTo, dismiss, endTour };
+  return { state, run, dismiss };
 };

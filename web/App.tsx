@@ -193,7 +193,12 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
     setExplainerWidth(width);
   }, []);
 
-  const guide = useGuide(openFile, openSection);
+  const revealNote = useCallback((id: string) => {
+    setShowComments(true);
+    setActiveNote(id);
+  }, []);
+
+  const guide = useGuide({ openFile, openSection, revealNote });
 
   const showFromExplainer = useCallback(
     (link: DiffLink) =>
@@ -220,8 +225,6 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
       reportView({
         file: current?.id.replace(/^file-/, '') ?? null,
         activeNote,
-        tourStep: guide.state.tour?.index ?? null,
-        explaining: guide.state.explanation?.file ?? null,
       });
     };
     const onScroll = () => {
@@ -233,7 +236,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
     report();
     main.addEventListener('scroll', onScroll);
     return () => main.removeEventListener('scroll', onScroll);
-  }, [activeNote, guide.state.tour?.index, guide.state.explanation]);
+  }, [activeNote]);
 
   const choosePalette = (next: PaletteName) => {
     localStorage.setItem('sidediff:palette', next);
@@ -256,11 +259,8 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
     (text: string) => {
       const intent = parseIntent(text, allFiles.map((file) => file.path));
       const main = document.querySelector('main.files');
-      const tour = guide.state.tour;
 
       if (intent === null) return sendUtterance(text, false);
-      if ((intent.kind === 'next' || intent.kind === 'back') && tour === null)
-        return sendUtterance(text, false);
 
       if (intent.kind === 'stop') voiceRef.current?.stop();
       if (intent.kind === 'note') stepNote(intent.direction);
@@ -281,8 +281,6 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
               if (rect.bottom > 0 && rect.top < window.innerHeight) button.click();
             });
       }
-      if (intent.kind === 'next' && tour) guide.goTo(tour.index + 1);
-      if (intent.kind === 'back' && tour) guide.goTo(tour.index - 1);
       if (intent.kind === 'close') guide.dismiss();
       if (intent.kind === 'scroll') main?.scrollBy({ top: intent.direction * main.clientHeight * 0.8, behavior: 'instant' });
       if (intent.kind === 'top') main?.scrollTo({ top: 0, behavior: 'instant' });
@@ -321,8 +319,6 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
       if (event.key === 'i') setShowComments((visible) => !visible);
       if (event.key === 'e' && hasExplainer) setExplainerOpen((visible) => !visible);
       if (event.key === 'Escape') guide.dismiss();
-      if (event.key === ']' && guide.state.tour) guide.goTo(guide.state.tour.index + 1);
-      if (event.key === '[' && guide.state.tour) guide.goTo(guide.state.tour.index - 1);
       if (event.key === 'm') (voice.listening ? voice.stop : voice.start)();
     };
 
@@ -485,11 +481,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
       <CodePanel palette={palette} />
       <GuideLayer
         state={guide.state}
-        palette={palette}
         voice={voice}
-        onDismiss={guide.dismiss}
-        onStep={guide.goTo}
-        onEndTour={guide.endTour}
         onClearCaption={() => guide.run({ type: 'say', text: '' })}
       />
     </div>

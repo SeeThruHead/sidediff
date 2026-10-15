@@ -1,6 +1,4 @@
 export type Intent =
-  | { readonly kind: 'next' }
-  | { readonly kind: 'back' }
   | { readonly kind: 'close' }
   | { readonly kind: 'scroll'; readonly direction: 1 | -1; readonly amount: 'page' | 'half' }
   | { readonly kind: 'line'; readonly line: number }
@@ -96,17 +94,6 @@ export const parseIntent = (text: string, files: readonly string[]): Intent | nu
   if (spoken.length <= 3 && has(spoken, 'show', 'notes')) return { kind: 'notes', visible: true };
   if (spoken.length <= 4 && (has(spoken, 'expand') || has(spoken, 'show', 'more'))) return { kind: 'expand' };
 
-  const tail = spoken.slice(-3).join(' ');
-  if (
-    (spoken.length <= 3 && (has(spoken, 'next') || has(spoken, 'move', 'on') || has(spoken, 'continue'))) ||
-    /(^| )(next( one| step| please)?|move on|go on|keep going)( please)?$/.test(tail)
-  )
-    return { kind: 'next' };
-  if (
-    (spoken.length <= 3 && (has(spoken, 'back') || has(spoken, 'previous') || has(spoken, 'go', 'back'))) ||
-    /(^| )(go back|previous( step)?|back one)( please)?$/.test(tail)
-  )
-    return { kind: 'back' };
   if (spoken.length <= 3 && (has(spoken, 'close') || has(spoken, 'dismiss') || has(spoken, 'hide', 'that')))
     return { kind: 'close' };
   if (spoken.length <= 4 && has(spoken, 'scroll', 'down')) return { kind: 'scroll', direction: 1, amount: 'page' };

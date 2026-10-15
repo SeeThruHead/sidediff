@@ -18,7 +18,6 @@ import {
   type Command as ViewCommand,
   NoteBatch,
   SidediffRpcs,
-  Steps,
 } from './protocol.js';
 import { Repo } from './repo.js';
 import { ServerInfo, freePort, serverLayer } from './server.js';
@@ -122,15 +121,6 @@ const highlight = Command.make(
     ),
 ).pipe(Command.withDescription('select lines, optionally marking a substring'));
 
-const explain = Command.make(
-  'explain',
-  { location, side, title: optionalText('title'), body: optionalText('body'), speak },
-  ({ location, side, title, body, speak }) =>
-    Effect.flatMap(parseLocation(location), (target) =>
-      send({ type: 'explain', ...target, side, speak, ...defined({ title, body }) }),
-    ),
-).pipe(Command.withDescription('open a zoomed popover with an explanation'));
-
 const say = Command.make(
   'say',
   { text: Argument.String('text').pipe(Argument.variadic({ min: 1 })), speak },
@@ -165,22 +155,64 @@ const explainer = Command.make(
 ).pipe(Command.withDescription('show an HTML explainer beside the diff, or remove it with --clear'));
 
 const clear = Command.make('clear', {}, () => send({ type: 'clear' })).pipe(
-  Command.withDescription('remove highlights and popovers'),
+  Command.withDescription('remove highlights and captions'),
 );
 
-const tour = Command.make('tour', { steps: Argument.FileSchema('steps', Steps) }, ({ steps }) =>
-  send({ type: 'tour', steps }),
-).pipe(Command.withDescription('load a guided tour from a JSON file of steps'));
+class GuideNeedsLine extends Schema.TaggedError<GuideNeedsLine>()('GuideNeedsLine', { value: Schema.String }) {
+  override get message() {
+    return `guide needs a line to point at, as <file>:<line>[-end]; got ${this.value}`;
+  }
+}
 
-const next = Command.make('next', {}, () => send({ type: 'next' })).pipe(Command.withDescription('next tour step'));
+const describedText = (name: string, description: string) =>
+  Flag.String(name).pipe(Flag.withDescription(description), Flag.optional, Flag.map(Option.getOrUndefined));
 
-const back = Command.make('back', {}, () => send({ type: 'back' })).pipe(
-  Command.withDescription('previous tour step'),
+const guide = Command.make(
+  'guide',
+  {
+    location,
+    why: Argument.String('why').pipe(
+      Argument.variadic({ min: 1 }),
+      Argument.withDescription('why the reviewer should care about this code'),
+    ),
+    side,
+    section: describedText('section', 'id of the explainer section to scroll into view beside it'),
+    text: describedText('text', 'a substring to mark inside the lines'),
+    detail: describedText('detail', 'a longer explanation shown under the comment'),
+  },
+  ({ location, why, side, section, text, detail }) =>
+    Effect.gen(function* () {
+      const target = yield* parseLocation(location);
+      if (target.start === undefined) return yield* new GuideNeedsLine({ value: location });
+
+      const client = yield* Client;
+      const line = target.end ?? target.start;
+      const [note] = yield* client.AddNotes({
+        notes: [
+          {
+            filePath: target.file,
+            ...(side === 'deletions' ? { oldLine: line } : { newLine: line }),
+            summary: why.join(' '),
+            author: 'agent',
+            kind: 'comment',
+            ...defined({ rationale: detail, explainer: section }),
+          },
+        ],
+      });
+      if (note === undefined) return yield* Console.error('the comment was not saved');
+
+      const { delivered } = yield* client.Send({
+        command: { type: 'guide', ...target, side, note: note.id, ...defined({ text, anchor: section }) },
+      });
+
+      yield* Console.log(`guided to ${note.filePath}:${note.line}, thread ${note.id}`);
+      if (delivered === 0) yield* Console.error('no browser has the review open; the comment is saved and shows when it opens');
+    }).pipe(withClient),
+).pipe(
+  Command.withDescription(
+    'take the reviewer to <file>:<line>[-end]: scroll there, select the lines, leave a comment saying why it matters, and open the explainer at --section',
+  ),
 );
-
-const goto = Command.make('goto', { step: Argument.Int('step') }, ({ step }) =>
-  send({ type: 'goto', index: step - 1 }),
-).pipe(Command.withDescription('jump to tour step <n>'));
 
 const where = Command.make('where', {}, () =>
   Client.use((client) => client.View()).pipe(
@@ -508,15 +540,11 @@ const sidediff = Command.make(
     note,
     show,
     highlight,
-    explain,
+    guide,
     say,
     clear,
     explainer,
     section,
-    tour,
-    next,
-    back,
-    goto,
     where,
     hover,
     definition,

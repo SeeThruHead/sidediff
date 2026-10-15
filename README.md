@@ -27,7 +27,7 @@ npm link
 
 ## Agents
 
-sidediff ships a skill that teaches a coding agent the whole workflow: opening a review, annotating it, the explainer panel, tours, type lookups, and above all listening for and answering the comments you leave on the diff. Install it into your agents' skills folders:
+sidediff ships a skill that teaches a coding agent the whole workflow: opening a review, annotating it, the explainer panel, walking you through the change, type lookups, and above all listening for and answering the comments you leave on the diff. Install it into your agents' skills folders:
 
 ```sh
 sidediff init                                  # pick from Claude Code, Codex, OpenCode, Pi and ~/.agents
@@ -49,7 +49,7 @@ sidediff HEAD~1 --no-watch    # a fixed range, no watching
 
 Options: `--port` (default 4977, falls back to the next free port), `--host` (default 127.0.0.1), `--no-open`, `--no-watch`. Any other arguments are passed to `git diff`.
 
-Keys: `s` split or unified, `a` show or hide notes, `n` / `p` next or previous note, `e` show or hide the explainer.
+Keys: `s` split or unified, `a` show or hide notes, `i` show or hide comments, `n` / `p` next or previous note, `e` show or hide the explainer.
 
 ## Notes
 
@@ -98,20 +98,21 @@ Links go both ways:
 - A note with `"explainer": "<id>"` (or `note add --explainer <id>`) shows a `§` link that opens the explainer at that element.
 - An element in the explainer with `data-file="src/app.ts" data-line="42"` (and `data-side="old"` for the old side) scrolls the diff to that line when clicked. Put it on a link to the code on GitHub and the same document still works outside sidediff. Other outbound links open in a new tab.
 
-## Guided tours and conversation
+## Guiding the reviewer
 
-A running server accepts commands that drive the open page, so a person or an agent can walk someone through a change:
+A running server accepts commands that drive the open page, so a person or an agent can walk someone through a change without covering the diff:
 
 ```sh
-sidediff show src/app.ts:40                     # scroll there
+sidediff guide src/app.ts:40-48 "Why this matters: ..." --section data-flow   # the main one
+sidediff show src/app.ts:40                     # just scroll there
 sidediff highlight src/app.ts:40-48 --text userId   # select lines and mark text
-sidediff explain src/app.ts:40-48 --title "Why" --body "..." [--speak]   # zoomed popover over the diff
-sidediff say "Next, the worker"                 # spoken through the browser, with a caption
+sidediff say "Next, the worker"                 # a caption (spoken with --speak)
 sidediff clear
-sidediff tour tour.json                         # steps array of the commands above; Next/Back in the page, or ] and [
 sidediff where                                  # which file the reader is on
 sidediff listen [--after <id>] [--wait 600]     # blocks until the reader says something
 ```
+
+`guide` is one stop on a walkthrough. It scrolls the diff to the lines and selects them, leaves a comment under them saying why they matter (a normal thread: the reviewer can reply and the agent sees it through `sidediff threads`), and scrolls the explainer to `--section` beside it. `--text` marks a substring, `--detail` adds a longer explanation, `--side old` points at deleted lines. The agent decides what comes next; there is no prepared tour file.
 
 Press Talk (or `m`) in the page to speak. Recognition uses the browser's built-in speech service (Chrome sends audio to Google; Safari uses Apple's), each finished sentence is posted to the server, and `sidediff listen` returns it. Replies are read aloud with the browser's speech synthesis.
 

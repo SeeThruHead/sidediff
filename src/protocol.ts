@@ -83,41 +83,29 @@ const targetFields = {
 export const Target = Schema.Struct(targetFields);
 export type Target = typeof Target.Type;
 
-const explanationFields = {
-  ...targetFields,
-  title: Schema.optionalKey(Schema.String),
-  body: Schema.optionalKey(Schema.String),
-};
-
-export const Explanation = Schema.Struct(explanationFields);
-export type Explanation = typeof Explanation.Type;
-
 export const Step = Schema.Union([
   Schema.Struct({ type: Schema.Literal('show'), ...targetFields }),
   Schema.Struct({ type: Schema.Literal('highlight'), ...targetFields }),
-  Schema.Struct({ type: Schema.Literal('explain'), speak: Schema.optionalKey(Schema.Boolean), ...explanationFields }),
   Schema.Struct({ type: Schema.Literal('say'), text: Schema.String, speak: Schema.optionalKey(Schema.Boolean) }),
   Schema.Struct({ type: Schema.Literal('section'), anchor: Schema.NonEmptyString }),
   Schema.Struct({ type: Schema.Literal('clear') }),
 ]);
 export type Step = typeof Step.Type;
 
-export const Steps = Schema.Array(Step);
+export const Guide = Schema.Struct({
+  type: Schema.Literal('guide'),
+  ...targetFields,
+  note: Schema.NonEmptyString,
+  anchor: Schema.optionalKey(Schema.NonEmptyString),
+});
+export type Guide = typeof Guide.Type;
 
-export const Command = Schema.Union([
-  Step,
-  Schema.Struct({ type: Schema.Literal('tour'), steps: Steps }),
-  Schema.Struct({ type: Schema.Literal('next') }),
-  Schema.Struct({ type: Schema.Literal('back') }),
-  Schema.Struct({ type: Schema.Literal('goto'), index: Schema.Int }),
-]);
+export const Command = Schema.Union([Step, Guide]);
 export type Command = typeof Command.Type;
 
 export const View = Schema.Struct({
   file: Schema.NullOr(Schema.String),
   activeNote: Schema.NullOr(Schema.String),
-  tourStep: Schema.NullOr(Schema.Int),
-  explaining: Schema.NullOr(Schema.String),
 });
 export type View = typeof View.Type;
 
