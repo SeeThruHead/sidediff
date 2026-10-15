@@ -25,6 +25,20 @@ pnpm run build
 npm link
 ```
 
+## Agents
+
+sidediff ships a skill that teaches a coding agent the whole workflow: opening a review, annotating it, the explainer panel, tours, type lookups, and above all listening for and answering the comments you leave on the diff. Install it into your agents' skills folders:
+
+```sh
+sidediff init                                  # pick from Claude Code, Codex, OpenCode, Pi and ~/.agents
+sidediff init --agent claude --agent codex     # no prompt
+sidediff init --dir ./.claude/skills           # any other skills folder, e.g. one per project
+```
+
+The picker pre-selects the agents it finds in your home directory. Folders that are symlinks to the same place are written once. Run it again after upgrading sidediff to refresh the skill. Pi also finds the skill in the installed package on its own (the `pi.skills` entry in `package.json`).
+
+The skill itself is [`skills/sidediff/SKILL.md`](skills/sidediff/SKILL.md).
+
 ## Use
 
 ```sh

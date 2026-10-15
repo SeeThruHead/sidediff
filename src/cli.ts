@@ -7,6 +7,7 @@ import { RpcClient, type RpcClientError, type RpcGroup, RpcSerialization } from 
 import { createRequire } from 'node:module';
 
 import { Explainer } from './explainer.js';
+import { agentIds, initSkill } from './init.js';
 import { Git } from './git.js';
 import { Notes } from './notes.js';
 import {
@@ -25,6 +26,12 @@ import { ServerInfo, freePort, serverLayer } from './server.js';
 class NoServer extends Schema.TaggedError<NoServer>()('NoServer', { serverFile: Schema.String }) {
   override get message() {
     return 'no sidediff server is running for this repository; start one with `sidediff <range>`';
+  }
+}
+
+class NotARepository extends Schema.TaggedError<NotARepository>()('NotARepository', { cwd: Schema.String }) {
+  override get message() {
+    return `${this.cwd} is not inside a git repository; sidediff reviews a git diff, so run it from the repository you want to review`;
   }
 }
 
@@ -449,6 +456,18 @@ const openBrowser = (url: string) =>
     ),
   ).pipe(Effect.ignore);
 
+const init = Command.make(
+  'init',
+  {
+    agent: Flag.Literals('agent', agentIds).pipe(
+      Flag.atLeast(0),
+      Flag.withDescription(`install for this agent; repeatable (${agentIds.join(', ')})`),
+    ),
+    dir: Flag.String('dir').pipe(Flag.atLeast(0), Flag.withDescription('install into this skills folder; repeatable')),
+  },
+  ({ agent, dir }) => initSkill(agent, dir),
+).pipe(Command.withDescription("install the sidediff skill into your coding agents' skills folders"));
+
 const sidediff = Command.make(
   'sidediff',
   {
@@ -462,6 +481,9 @@ const sidediff = Command.make(
   ({ range, port, host, open, watch, explainer }) =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
+      const repo = yield* Repo;
+      if (!repo.inRepo) return yield* new NotARepository({ cwd: repo.root });
+
       const chosen = yield* freePort(port, host);
       const url = `http://${host}:${chosen}`;
       const page = explainer === undefined ? null : path.resolve(explainer);
@@ -482,6 +504,7 @@ const sidediff = Command.make(
 ).pipe(
   Command.withDescription('GitHub-style diff review in the browser, with a live notes column'),
   Command.withSubcommands([
+    init,
     note,
     show,
     highlight,

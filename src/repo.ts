@@ -1,4 +1,4 @@
-import { Config, Context, Effect, Layer, Path } from 'effect';
+import { Config, Context, Effect, Layer, Option, Path } from 'effect';
 
 import { Git } from './git.js';
 
@@ -8,6 +8,7 @@ export class Repo extends Context.Service<
   Repo,
   {
     readonly root: string;
+    readonly inRepo: boolean;
     readonly notes: string;
     readonly state: string;
     readonly serverFile: string;
@@ -20,7 +21,9 @@ export class Repo extends Context.Service<
       const git = yield* Git;
       const path = yield* Path.Path;
 
-      const root = yield* git.repoRoot(process.cwd());
+      const cwd = process.cwd();
+      const found = yield* git.repoRoot(cwd).pipe(Effect.option);
+      const root = Option.getOrElse(found, () => cwd);
       const home = yield* Effect.orDie(Config.String('HOME'));
       const stateHome = yield* Effect.orDie(
         Config.NonEmptyString('XDG_STATE_HOME').pipe(
@@ -31,6 +34,7 @@ export class Repo extends Context.Service<
 
       return {
         root,
+        inRepo: Option.isSome(found),
         notes: path.join(state, 'notes'),
         state,
         serverFile: path.join(state, 'server.json'),
