@@ -9,6 +9,8 @@ description: Review a git diff with a human in the sidediff browser view (GitHub
 
 The human reads and comments in the browser. The agent works through the CLI. Everything the agent writes appears in the page immediately.
 
+**The reviewer is in the page, not in the chat.** While a review is open they read sidediff and usually do not have the agent chat in view. Everything they need goes into the page: explanations of the code, answers, findings, drafts for them to approve, questions back to them, what was done and where, and what comes next. Put it in the thread under the code it is about. The chat gets one status line at most, never content they would have to switch windows to read.
+
 ## Setup
 
 ```sh
@@ -83,11 +85,13 @@ The reviewer hovers a line and presses `+` to start a thread, replies in threads
    - `resolved`: nothing to say. Don't reply to a resolved thread unless asked.
    - `reopened`: read the thread again; something still needs an answer.
 
-4. **Start the listener again** with `--after` set to the highest `seq` you just handled. Go back to step 2.
+4. **Start the listener again** with `--after` set to the `seq` of the last event you handled, exactly as printed. Never add one to it or guess ahead: that skips the reviewer's next comment. Your own replies are left out of the output anyway, and `guide`, `say` and `show` create no events. Go back to step 2.
 
 ### Rules for the loop
 
 - One listener at a time. Start the next one only after handling the previous one's output.
+- The reviewer often writes again while you are working on their last comment. Before replying, check for anything newer with `sidediff threads --after <seq you are handling> --wait 1`, and answer everything in order.
+- Before anything that takes more than a moment (reading code, checking a library, fetching a branch), set a caption with `sidediff say "<what you are doing>"` so the page shows what you are working on.
 - If your harness can run commands in the background and notify you when they finish, use that for step 2 and keep doing other work meanwhile. If it can't, run step 2 with a short `--wait` (60) between other steps of your work, so comments never wait long.
 - Every event gets handled before the next listener starts. A comment that never gets an answer is the worst outcome.
 - If the server stops or restarts, a running listener exits with an RPC error; that is not a comment. Sequence numbers start again from 1 after a restart. Repeat step 1 (`--after 0 --all`) and check for threads still waiting on you: `sidediff note list --json` shows each note's `replies`; a thread whose last reply isn't yours, and isn't resolved, needs an answer.
@@ -157,7 +161,7 @@ How to guide well:
 - Order the stops by what matters most: bugs first, then decisions someone has to make, then risky or subtle code, then the rest. Skip what is obvious from reading.
 - The sentence says why *they* should care (what breaks, who it affects, what to decide), not what the code does line by line. Check it against the code before you send it.
 - Point at the narrowest range that shows it, usually the call or condition at fault, not the whole function.
-- After each stop, tell the user in chat in two or three lines what they are looking at and what you want from them, then wait. Move to the next stop when they ask ("next"), or answer in the thread if they comment there.
+- After each stop, put what they are looking at and what you want from them in the stop's thread (the sentence, plus `--detail` or a reply for the rest), then wait. Move to the next stop in the same review when they ask ("next"); never jump to another review or branch unless they name it. Answer in the thread if they comment there.
 - Every stop leaves its comment behind, so the diff keeps a trail of why each place mattered. Remove one with `sidediff note rm <id>` if it turned out wrong.
 
 Smaller tools for pointing while you talk:
