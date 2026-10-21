@@ -597,6 +597,14 @@ kbd {
   line-height: 1.5;
 }
 
+.rich-text-code {
+  margin: 6px 0 0;
+  overflow: hidden;
+  border: 1px solid var(--border-muted);
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
 .rich-text img {
   display: block;
   max-width: 100%;

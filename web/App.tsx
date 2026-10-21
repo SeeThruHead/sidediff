@@ -10,6 +10,7 @@ import { useGuide } from './guide';
 import { GuideLayer } from './GuideLayer';
 import { type FilePatch, type Note, type Snapshot, splitPatch } from './patch';
 import { Sidebar } from './Sidebar';
+import { PaletteContext } from './Markdown';
 import { type PaletteName, palettes, uiVars } from './themes';
 import { buildTree, filesInOrder } from './tree';
 import { useViewed } from './viewed';
@@ -335,6 +336,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
   const explainerShown = hasExplainer && explainerOpen;
 
   return (
+    <PaletteContext value={palette}>
     <ExplainerLinks value={sectionLinks}>
     <div
       className={explainerShown ? 'app with-explainer' : 'app'}
@@ -486,5 +488,6 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
       />
     </div>
     </ExplainerLinks>
+    </PaletteContext>
   );
 };
