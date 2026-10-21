@@ -97,6 +97,7 @@ The reviewer hovers a line and presses `+` to start a thread, replies in threads
 - If the server stops or restarts, a running listener exits with an RPC error; that is not a comment. Sequence numbers start again from 1 after a restart. Repeat step 1 (`--after 0 --all`) and check for threads still waiting on you: `sidediff note list --json` shows each note's `replies`; a thread whose last reply isn't yours, and isn't resolved, needs an answer.
 - `sidediff resolve <note id>` once a thread is settled and the reviewer has agreed; `--reopen` to undo. Usually leave resolving to the reviewer.
 - `sidediff reply` signs as `agent`. Pass `--author <name>` only if the user asks.
+- Replies, notes and rationales render as GitHub-flavoured markdown (code blocks, lists, tables, links). For a reply with code or backticks, write it to a file and pass `--body-file <file>` rather than quoting it on the command line. Attach screenshots with `--image <file>` (repeatable).
 
 ## 3. Annotate the diff
 
