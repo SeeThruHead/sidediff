@@ -460,6 +460,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
                 : null
             }
             onToggle={toggleFile}
+            releaseSelection={guide.releaseLines}
             onViewed={markViewed}
             onFocusNote={focusNote}
           />

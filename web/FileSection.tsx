@@ -300,6 +300,7 @@ export const FileSection = memo(function FileSection({
   selection,
   pinned,
   onToggle,
+  releaseSelection,
   onViewed,
   onFocusNote,
 }: {
@@ -315,6 +316,7 @@ export const FileSection = memo(function FileSection({
   selection: { start: number; end: number; side: 'additions' | 'deletions' } | null;
   pinned: boolean;
   onToggle: (path: string) => void;
+  releaseSelection: () => void;
   onViewed: (file: FilePatch, viewed: boolean) => void;
   onFocusNote: (id: string) => void;
 }) {
@@ -358,6 +360,9 @@ export const FileSection = memo(function FileSection({
 
   const estimatedHeight = bodyHeight.current ?? Math.max(80, (file.additions + file.deletions + 12) * 20);
 
+  const holdsSelection = useRef(selection !== null);
+  holdsSelection.current = selection !== null;
+
   const diffOptions = useMemo(
     () => ({
       diffStyle,
@@ -373,10 +378,13 @@ export const FileSection = memo(function FileSection({
       loadDiffFiles: () => loadSides(file),
       ...tokenHandlers(file.path),
       enableGutterUtility: true,
+      onLineEnter: (line: { numberColumn: boolean }) => {
+        if (line.numberColumn && holdsSelection.current) releaseSelection();
+      },
       onGutterUtilityClick: (range: { end: number; side?: 'additions' | 'deletions' }) =>
         setComposer({ side: range.side === 'deletions' ? 'deletions' : 'additions', line: range.end }),
     }),
-    [diffStyle, palette, file],
+    [diffStyle, palette, file, releaseSelection],
   );
 
   const composerView =

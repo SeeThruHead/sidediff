@@ -176,5 +176,16 @@ export const useGuide = ({ openFile, openSection, revealNote }: GuideActions) =>
     setState(() => initial);
   }, []);
 
-  return { state, run, dismiss };
+  const releaseLines = useCallback(
+    () =>
+      setState((current) => {
+        if (current.highlight?.start === undefined) return current;
+
+        const { start: _start, end: _end, ...rest } = current.highlight;
+        return { ...current, highlight: rest };
+      }),
+    [],
+  );
+
+  return { state, run, dismiss, releaseLines };
 };
