@@ -48,6 +48,7 @@ const RpcHandlers = SidediffRpcs.toLayer(
       ToComment: ({ noteId }) => review.toComment(noteId),
       Threads: ({ after }) => review.threads(after),
       Refresh: () => review.refresh,
+      SetWorking: ({ noteId, status, done }) => review.setWorking(noteId, status, done),
       SetExplainer: ({ path }) => explainer.set(path),
       ListNotes: () => notes.list,
       AddNotes: ({ notes: inputs }) => notes.add(inputs).pipe(Effect.mapError(unsavedError)),

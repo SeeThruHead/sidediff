@@ -58,6 +58,13 @@ export const ExplainerInfo = Schema.Struct({
 });
 export type ExplainerInfo = typeof ExplainerInfo.Type;
 
+export const Working = Schema.Struct({
+  noteId: Schema.String,
+  since: Schema.String,
+  status: Schema.optionalKey(Schema.String),
+});
+export type Working = typeof Working.Type;
+
 export const Snapshot = Schema.Struct({
   repo: Schema.String,
   branch: Schema.String,
@@ -69,6 +76,7 @@ export const Snapshot = Schema.Struct({
   watching: Schema.Boolean,
   updatedAt: Schema.String,
   explainer: Schema.NullOr(ExplainerInfo),
+  working: Schema.Array(Working),
 });
 export type Snapshot = typeof Snapshot.Type;
 
@@ -256,6 +264,9 @@ export const SidediffRpcs = RpcGroup.make(
     error: Schema.Union([NoteMissing, NoteUnsaved]),
   }),
   Rpc.make('Refresh', {}),
+  Rpc.make('SetWorking', {
+    payload: { noteId: Schema.NonEmptyString, status: Schema.optionalKey(Schema.String), done: Schema.Boolean },
+  }),
   Rpc.make('SetExplainer', {
     payload: { path: Schema.NullOr(Schema.NonEmptyString) },
     success: Schema.NullOr(ExplainerInfo),

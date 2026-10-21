@@ -86,6 +86,7 @@ The reviewer hovers a line and presses `+` to start a thread, replies in threads
    - `reopened`: read the thread again; something still needs an answer.
 
 4. **Start the listener again** with `--after` set to the `seq` of the last event you handled, exactly as printed. Never add one to it or guess ahead: that skips the reviewer's next comment. Your own replies are left out of the output anyway, and `guide`, `say` and `show` create no events. Go back to step 2.
+5. While you work on a comment, its thread shows a spinner. The listener turns it on when it delivers the comment, and your reply or `resolve` turns it off (it also expires after 15 minutes). Keep its status line current for anything that takes more than a moment: `sidediff working <note id> "<what you are doing>"`. `sidediff working <note id> --done` clears it without replying.
 
 ### Rules for the loop
 

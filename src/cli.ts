@@ -479,6 +479,26 @@ const reply = Command.make(
     ),
 ).pipe(Command.withDescription('reply to a review thread; it appears in the browser immediately'));
 
+const working = Command.make(
+  'working',
+  {
+    id: Argument.String('id'),
+    status: Argument.String('status').pipe(Argument.variadic({ min: 0 })),
+    done: Flag.Boolean('done').pipe(Flag.withDefault(false)),
+  },
+  ({ id, status, done }) =>
+    Client.use((client) =>
+      client.SetWorking({ noteId: id, done, ...(status.length > 0 ? { status: status.join(' ') } : {}) }),
+    ).pipe(
+      Effect.andThen(Console.log(done ? `${id} no longer working` : `${id} working`)),
+      withClient,
+    ),
+).pipe(
+  Command.withDescription(
+    'show a spinner with a status under a thread (set automatically when the listener delivers a comment; cleared by reply, resolve or --done)',
+  ),
+);
+
 const resolve = Command.make(
   'resolve',
   { id: Argument.String('id'), reopen: Flag.Boolean('reopen').pipe(Flag.withDefault(false)) },
@@ -589,6 +609,7 @@ const sidediff = Command.make(
     thread,
     reply,
     resolve,
+    working,
   ]),
 );
 

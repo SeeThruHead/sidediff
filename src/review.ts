@@ -30,6 +30,7 @@ import {
   type ThreadEvent,
   type Utterance,
   type View,
+  type Working,
 } from './protocol.js';
 import { Repo } from './repo.js';
 
@@ -57,6 +58,13 @@ const isRelevant = (file: string) => {
 const isGitStateChange = (file: string) =>
   file.includes('HEAD') || file.includes('refs') || file.endsWith('index');
 
+const AGENT = 'agent';
+
+const WORKING_LIMIT = Duration.minutes(15);
+
+const awaitsAgent = (event: ThreadEvent) =>
+  event.author !== AGENT && event.kind !== 'resolved' && event.kind !== 'reopened';
+
 const versionOf = (patch: string, notes: unknown) =>
   createHash('sha1').update(patch).update(JSON.stringify(notes)).digest('hex').slice(0, 12);
 
@@ -83,6 +91,7 @@ export class Review extends Context.Service<
     readonly threads: (after: number | undefined) => Stream.Stream<readonly ThreadEvent[]>;
     readonly toComment: (id: string) => Effect.Effect<Note, NoteMissing | NoteUnsaved>;
     readonly refresh: Effect.Effect<void>;
+    readonly setWorking: (noteId: string, status: string | undefined, done: boolean) => Effect.Effect<void>;
   }
 >()('sidediff/Review') {
   static readonly layer = Layer.effect(
@@ -118,8 +127,47 @@ export class Review extends Context.Service<
         Effect.catch((error) => Effect.logWarning('[refresh] diff failed', error)),
       );
 
-      const snapshots = Stream.zipLatestAll(SubscriptionRef.changes(diff), notes.changes, explainer.changes).pipe(
-        Stream.mapEffect(([{ patch, branch }, current, explaining]) =>
+      const working = yield* SubscriptionRef.make<readonly Working[]>([]);
+
+      const startWorking = (noteId: string, status: string | undefined) =>
+        Effect.flatMap(DateTime.now, (now) =>
+          SubscriptionRef.update(working, (current) => {
+            const existing = current.find((entry) => entry.noteId === noteId);
+            const since = existing?.since ?? DateTime.formatIso(now);
+            const entry: Working = status === undefined ? { noteId, since } : { noteId, since, status };
+
+            return [...current.filter((other) => other.noteId !== noteId), entry];
+          }),
+        );
+
+      const stopWorking = (noteId: string) =>
+        SubscriptionRef.update(working, (current) =>
+          current.some((entry) => entry.noteId === noteId) ? current.filter((entry) => entry.noteId !== noteId) : current,
+        );
+
+      const setWorking = (noteId: string, status: string | undefined, done: boolean) =>
+        done ? stopWorking(noteId) : startWorking(noteId, status);
+
+      const isFresh = (now: DateTime.Utc) => (entry: Working) =>
+        DateTime.toEpochMillis(now) - Date.parse(entry.since) < Duration.toMillis(WORKING_LIMIT);
+
+      yield* DateTime.now.pipe(
+        Effect.flatMap((now) =>
+          SubscriptionRef.update(working, (current) =>
+            current.every(isFresh(now)) ? current : current.filter(isFresh(now)),
+          ),
+        ),
+        Effect.repeat(Schedule.spaced(Duration.seconds(30))),
+        Effect.forkScoped,
+      );
+
+      const snapshots = Stream.zipLatestAll(
+        SubscriptionRef.changes(diff),
+        notes.changes,
+        explainer.changes,
+        SubscriptionRef.changes(working),
+      ).pipe(
+        Stream.mapEffect(([{ patch, branch }, current, explaining, busy]) =>
           Effect.map(
             DateTime.now,
             (now): Snapshot => ({
@@ -128,11 +176,12 @@ export class Review extends Context.Service<
               range: options.range,
               patch,
               notes: current,
-              version: versionOf(patch, [current, explaining]),
+              version: versionOf(patch, [current, explaining, busy]),
               diffVersion: versionOf(patch, []),
               watching: options.watch,
               updatedAt: DateTime.formatIso(now),
               explainer: explaining,
+              working: busy,
             }),
           ),
         ),
@@ -277,6 +326,7 @@ export class Review extends Context.Service<
       const reply = Effect.fn('Review.reply')(function* (id: string, body: string, author: string | undefined) {
         const who = author ?? reviewer;
         const note = yield* notes.reply(id, who, body).pipe(Effect.catchTag('NotesUnwritable', (error) => Effect.fail(unsaved(error))));
+        if (who === AGENT) yield* stopWorking(id);
 
         return yield* record('reply', note, who, body);
       });
@@ -284,6 +334,7 @@ export class Review extends Context.Service<
       const resolve = Effect.fn('Review.resolve')(function* (id: string, resolved: boolean, author: string | undefined) {
         const who = author ?? reviewer;
         const note = yield* notes.resolve(id, resolved).pipe(Effect.catchTag('NotesUnwritable', (error) => Effect.fail(unsaved(error))));
+        yield* stopWorking(id);
 
         return yield* record(resolved ? 'resolved' : 'reopened', note, who, '');
       });
@@ -306,11 +357,20 @@ export class Review extends Context.Service<
               Stream.map((event) => [event]),
             );
 
-            return pending.length > 0 ? Stream.concat(Stream.make(pending), live) : live;
+            const delivered = pending.length > 0 ? Stream.concat(Stream.make(pending), live) : live;
+
+            return delivered.pipe(
+              Stream.tap((batch) =>
+                Effect.forEach(batch.filter(awaitsAgent), (event) => startWorking(event.noteId, undefined), {
+                  discard: true,
+                }),
+              ),
+            );
           }),
         );
 
       return {
+        setWorking,
         toComment,
         refresh,
         startThread,

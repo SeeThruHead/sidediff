@@ -3,7 +3,8 @@ import { type KeyboardEvent, memo, useCallback, useEffect, useLayoutEffect, useM
 
 import { type Diagnostic, isComment } from '../src/protocol';
 import { useDiagnostics, useSquiggles } from './squiggles';
-import { readFile, replyToThread, resolveThread, startThread, toComment } from './client';
+import { useAtomValue } from '@effect/atom-react';
+import { readFile, replyToThread, resolveThread, snapshotAtom, startThread, toComment } from './client';
 import { tokenHandlers } from './code';
 import { SectionLink } from './Explainer';
 import { RichText } from './Markdown';
@@ -89,6 +90,42 @@ const submitOnEnter = (submit: () => void) => (event: KeyboardEvent<HTMLTextArea
   submit();
 };
 
+const useWorking = (noteId: string) => {
+  const snapshot = useAtomValue(snapshotAtom);
+  if (snapshot._tag !== 'Success') return undefined;
+
+  return snapshot.value?.working.find((entry) => entry.noteId === noteId);
+};
+
+const useSecondsSince = (since: string | undefined) => {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (since === undefined) return;
+
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [since]);
+
+  return since === undefined ? 0 : Math.max(0, Math.round((now - Date.parse(since)) / 1000));
+};
+
+const elapsed = (seconds: number) => (seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`);
+
+const WorkingRow = ({ noteId }: { noteId: string }) => {
+  const working = useWorking(noteId);
+  const seconds = useSecondsSince(working?.since);
+  if (working === undefined) return null;
+
+  return (
+    <div className="thread-working" role="status" aria-live="polite">
+      <span className="spinner" aria-hidden="true" />
+      <span className="thread-working-text">{working.status ?? 'Agent is working'}</span>
+      <span className="thread-working-time">{elapsed(seconds)}</span>
+    </div>
+  );
+};
+
 const InlineThread = ({ note }: { note: Note }) => {
   const [draft, setDraft] = useState('');
   const replies = note.replies ?? [];
@@ -113,6 +150,7 @@ const InlineThread = ({ note }: { note: Note }) => {
           <RichText text={entry.body} />
         </div>
       ))}
+      <WorkingRow noteId={note.id} />
       <textarea
         className="comment-input"
         placeholder="Reply"
