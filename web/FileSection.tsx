@@ -1,5 +1,5 @@
 import { PatchDiff } from '@pierre/diffs/react';
-import { type KeyboardEvent, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { type Diagnostic, isComment } from '../src/protocol';
 import { useDiagnostics, useSquiggles } from './squiggles';
@@ -126,47 +126,106 @@ const WorkingRow = ({ noteId }: { noteId: string }) => {
   );
 };
 
-const InlineThread = ({ note }: { note: Note }) => {
+type LineSide = 'additions' | 'deletions';
+
+const lineLabel = (side: LineSide, line: number) => `${side === 'deletions' ? 'L' : 'R'}${line}`;
+
+const CommentBox = ({
+  placeholder,
+  submitLabel,
+  autoFocus,
+  onSubmit,
+  onCancel,
+  extra,
+}: {
+  placeholder: string;
+  submitLabel: string;
+  autoFocus: boolean;
+  onSubmit: (body: string) => void;
+  onCancel?: () => void;
+  extra?: ReactNode;
+}) => {
   const [draft, setDraft] = useState('');
-  const replies = note.replies ?? [];
-  const send = () => {
+  const input = useRef<HTMLTextAreaElement | null>(null);
+  const submit = () => {
     if (draft.trim() === '') return;
 
-    replyToThread(note.id, draft.trim());
+    onSubmit(draft.trim());
     setDraft('');
   };
 
+  useEffect(() => {
+    if (!autoFocus) return;
+
+    const frame = requestAnimationFrame(() => input.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocus]);
+
   return (
-    <div className={note.resolved === true ? 'inline-thread resolved' : 'inline-thread'}>
-      <div className="comment">
-        <span className="comment-author">{note.author}</span>
-        <RichText text={note.summary} />
-        {note.rationale && note.rationale !== note.summary && <RichText className="comment-detail" text={note.rationale} />}
-        {note.explainer && <SectionLink anchor={note.explainer} />}
-      </div>
-      {replies.map((entry) => (
-        <div key={entry.id} className="comment">
-          <span className="comment-author">{entry.author}</span>
-          <RichText text={entry.body} />
-        </div>
-      ))}
-      <WorkingRow noteId={note.id} />
+    <>
       <textarea
+        ref={input}
         className="comment-input"
-        placeholder="Reply"
+        placeholder={placeholder}
         rows={2}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={submitOnEnter(send)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') onCancel?.();
+          submitOnEnter(submit)(event);
+        }}
       />
       <div className="comment-actions">
-        <button className="primary" disabled={draft.trim() === ''} onClick={send}>
-          Reply
+        <button className="primary" disabled={draft.trim() === ''} onClick={submit}>
+          {submitLabel}
         </button>
-        <button onClick={() => resolveThread(note.id, note.resolved !== true)}>
-          {note.resolved === true ? 'Reopen' : 'Resolve'}
-        </button>
+        {onCancel && <button onClick={onCancel}>Cancel</button>}
+        {extra}
       </div>
+    </>
+  );
+};
+
+const InlineThread = ({ note }: { note: Note }) => {
+  const resolved = note.resolved === true;
+  const [collapsed, setCollapsed] = useState(resolved);
+  const replies = note.replies ?? [];
+
+  useEffect(() => setCollapsed(resolved), [resolved]);
+
+  return (
+    <div className={resolved ? 'inline-thread resolved' : 'inline-thread'}>
+      <button className="thread-header" aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>
+        <span className="thread-chevron" aria-hidden="true">
+          {collapsed ? '▸' : '▾'}
+        </span>
+        <span>Comment on line {lineLabel(note.side, note.line)}</span>
+        {resolved && <span className="badge badge-resolved">Resolved</span>}
+      </button>
+      {!collapsed && (
+        <div className="thread-body">
+          <div className="comment">
+            <span className="comment-author">{note.author}</span>
+            <RichText text={note.summary} />
+            {note.rationale && note.rationale !== note.summary && <RichText className="comment-detail" text={note.rationale} />}
+            {note.explainer && <SectionLink anchor={note.explainer} />}
+          </div>
+          {replies.map((entry) => (
+            <div key={entry.id} className="comment">
+              <span className="comment-author">{entry.author}</span>
+              <RichText text={entry.body} />
+            </div>
+          ))}
+          <WorkingRow noteId={note.id} />
+          <CommentBox
+            placeholder="Reply"
+            submitLabel="Reply"
+            autoFocus={false}
+            onSubmit={(body) => replyToThread(note.id, body)}
+            extra={<button onClick={() => resolveThread(note.id, !resolved)}>{resolved ? 'Reopen' : 'Resolve'}</button>}
+          />
+        </div>
+      )}
     </div>
   );
 };
@@ -187,43 +246,24 @@ export const OutdatedComments = ({ comments }: { comments: readonly Note[] }) =>
   </div>
 );
 
-const InlineComposer = ({ onSubmit, onCancel }: { onSubmit: (body: string) => void; onCancel: () => void }) => {
-  const [draft, setDraft] = useState('');
-  const input = useRef<HTMLTextAreaElement | null>(null);
-  const submit = () => {
-    if (draft.trim() === '') return;
-
-    onSubmit(draft.trim());
-  };
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => input.current?.focus({ preventScroll: true }));
-    return () => cancelAnimationFrame(frame);
-  }, []);
-
-  return (
-    <div className="inline-thread composing">
-      <textarea
-        ref={input}
-        className="comment-input"
-        placeholder="Leave a comment"
-        rows={3}
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') onCancel();
-          submitOnEnter(submit)(event);
-        }}
-      />
-      <div className="comment-actions">
-        <button className="primary" disabled={draft.trim() === ''} onClick={submit}>
-          Comment
-        </button>
-        <button onClick={onCancel}>Cancel</button>
-      </div>
+const InlineComposer = ({
+  side,
+  line,
+  onSubmit,
+  onCancel,
+}: {
+  side: LineSide;
+  line: number;
+  onSubmit: (body: string) => void;
+  onCancel: () => void;
+}) => (
+  <div className="inline-thread composing">
+    <div className="thread-header static">Comment on line {lineLabel(side, line)}</div>
+    <div className="thread-body">
+      <CommentBox placeholder="Leave a comment" submitLabel="Comment" autoFocus onSubmit={onSubmit} onCancel={onCancel} />
     </div>
-  );
-};
+  </div>
+);
 
 const NoteCard = ({
   note,
@@ -390,6 +430,8 @@ export const FileSection = memo(function FileSection({
   const composerView =
     composer === null ? null : (
       <InlineComposer
+        side={composer.side}
+        line={composer.line}
         onCancel={() => setComposer(null)}
         onSubmit={(body) => {
           startThread({ filePath: file.path, side: composer.side, line: composer.line, body });
