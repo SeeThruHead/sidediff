@@ -6,6 +6,7 @@ import { useDiagnostics, useSquiggles } from './squiggles';
 import { readFile, replyToThread, resolveThread, startThread, toComment } from './client';
 import { tokenHandlers } from './code';
 import { SectionLink } from './Explainer';
+import { RichText } from './Markdown';
 import { type FilePatch, type Note, isLineInDiff } from './patch';
 import type { PaletteName } from './themes';
 import { diffCss, palettes } from './themes';
@@ -102,14 +103,14 @@ const InlineThread = ({ note }: { note: Note }) => {
     <div className={note.resolved === true ? 'inline-thread resolved' : 'inline-thread'}>
       <div className="comment">
         <span className="comment-author">{note.author}</span>
-        <p>{note.summary}</p>
-        {note.rationale && note.rationale !== note.summary && <p className="comment-detail">{note.rationale}</p>}
+        <RichText text={note.summary} />
+        {note.rationale && note.rationale !== note.summary && <RichText className="comment-detail" text={note.rationale} />}
         {note.explainer && <SectionLink anchor={note.explainer} />}
       </div>
       {replies.map((entry) => (
         <div key={entry.id} className="comment">
           <span className="comment-author">{entry.author}</span>
-          <p>{entry.body}</p>
+          <RichText text={entry.body} />
         </div>
       ))}
       <textarea
@@ -214,7 +215,7 @@ const NoteCard = ({
       </span>
     </header>
     <h4>{note.summary}</h4>
-    {note.rationale && note.rationale !== note.summary && <p>{note.rationale}</p>}
+    {note.rationale && note.rationale !== note.summary && <RichText text={note.rationale} />}
     {note.explainer && <SectionLink anchor={note.explainer} />}
     <button
       className="annotation-comment"

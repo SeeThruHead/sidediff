@@ -13,6 +13,7 @@ export class Repo extends Context.Service<
     readonly state: string;
     readonly serverFile: string;
     readonly explainerFile: string;
+    readonly assets: string;
   }
 >()('sidediff/Repo') {
   static readonly layer = Layer.effect(
@@ -39,6 +40,7 @@ export class Repo extends Context.Service<
         state,
         serverFile: path.join(state, 'server.json'),
         explainerFile: path.join(state, 'explainer.json'),
+        assets: path.join(state, 'attachments'),
       };
     }),
   );

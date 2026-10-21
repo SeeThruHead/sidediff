@@ -6,6 +6,7 @@ import { ChildProcess, ChildProcessSpawner } from 'effect/process';
 import { RpcClient, type RpcClientError, type RpcGroup, RpcSerialization } from 'effect/rpc';
 import { createRequire } from 'node:module';
 
+import { AssetUnreadable, attachImage } from './assets.js';
 import { Explainer } from './explainer.js';
 import { agentIds, initSkill } from './init.js';
 import { Git } from './git.js';
@@ -157,6 +158,12 @@ const explainer = Command.make(
 const clear = Command.make('clear', {}, () => send({ type: 'clear' })).pipe(
   Command.withDescription('remove highlights and captions'),
 );
+
+class EmptyReply extends Schema.TaggedError<EmptyReply>()('EmptyReply', {}) {
+  override get message() {
+    return 'nothing to send: give reply text, --body-file or --image';
+  }
+}
 
 class GuideNeedsLine extends Schema.TaggedError<GuideNeedsLine>()('GuideNeedsLine', { value: Schema.String }) {
   override get message() {
@@ -431,15 +438,42 @@ const thread = Command.make('thread', { id: Argument.String('id') }, ({ id }) =>
   }),
 ).pipe(Command.withDescription('print a thread: the first comment and every reply'));
 
+const replyBody = Effect.fn('cli.replyBody')(function* (
+  text: readonly string[],
+  bodyFile: Option.Option<string>,
+  images: readonly string[],
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const fromFile = yield* Option.match(bodyFile, {
+    onNone: () => Effect.succeed(''),
+    onSome: (file) => fs.readFileString(file).pipe(Effect.mapError(() => new AssetUnreadable({ file }))),
+  });
+  const attached = yield* Effect.forEach(images, attachImage);
+  const body = [text.join(' '), fromFile.trim(), ...attached].filter((part) => part !== '').join('\n\n');
+
+  if (body === '') return yield* new EmptyReply();
+
+  return body;
+});
+
 const reply = Command.make(
   'reply',
   {
     id: Argument.String('id'),
-    text: Argument.String('text').pipe(Argument.variadic({ min: 1 })),
+    text: Argument.String('text').pipe(Argument.variadic({ min: 0 })),
+    bodyFile: Flag.File('body-file').pipe(
+      Flag.optional,
+      Flag.withDescription('read the reply (markdown) from this file'),
+    ),
+    images: Flag.File('image').pipe(
+      Flag.atLeast(0),
+      Flag.withDescription('attach an image file; repeat for several'),
+    ),
     author: Flag.String('author').pipe(Flag.withDefault('agent')),
   },
-  ({ id, text, author }) =>
-    Client.use((client) => client.Reply({ noteId: id, body: text.join(' '), author })).pipe(
+  ({ id, text, bodyFile, images, author }) =>
+    replyBody(text, bodyFile, images).pipe(
+      Effect.flatMap((body) => Client.use((client) => client.Reply({ noteId: id, body, author }))),
       Effect.flatMap((note) => Console.log(`replied on ${note.id} (${note.replies?.length ?? 0} replies)`)),
       withClient,
     ),

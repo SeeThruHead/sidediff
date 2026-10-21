@@ -7,6 +7,7 @@ import { Context, Duration, Effect, FileSystem, Layer, Option, Path, Schema } fr
 import { HttpRouter, HttpServerResponse } from 'effect/http';
 import { RpcSerialization, RpcServer } from 'effect/rpc';
 
+import { ASSET_ROUTE } from './assets.js';
 import { Explainer } from './explainer.js';
 import { LanguageService } from './language.js';
 import { Notes } from './notes.js';
@@ -58,17 +59,31 @@ const RpcHandlers = SidediffRpcs.toLayer(
 
 const webRoot = fileURLToPath(new URL('./web', import.meta.url));
 
-const StaticFiles = HttpRouter.add('GET', '/*', (request) =>
+const fileWithin = (root: string, relative: string) =>
   Effect.gen(function* () {
     const path = yield* Path.Path;
-    const pathname = new URL(request.url, 'http://localhost').pathname;
-    const asset = path.join(webRoot, pathname === '/' ? 'index.html' : pathname.slice(1));
+    const file = path.join(root, relative);
 
-    if (path.relative(webRoot, asset).startsWith('..')) return HttpServerResponse.empty({ status: 404 });
+    if (path.relative(root, file).startsWith('..')) return HttpServerResponse.empty({ status: 404 });
 
-    return yield* HttpServerResponse.file(asset, { headers: { 'cache-control': 'no-store' } }).pipe(
+    return yield* HttpServerResponse.file(file, { headers: { 'cache-control': 'no-store' } }).pipe(
       Effect.orElseSucceed(() => HttpServerResponse.empty({ status: 404 })),
     );
+  });
+
+const pathnameOf = (request: { readonly url: string }) => new URL(request.url, 'http://localhost').pathname;
+
+const StaticFiles = HttpRouter.add('GET', '/*', (request) => {
+  const pathname = pathnameOf(request);
+
+  return fileWithin(webRoot, pathname === '/' ? 'index.html' : pathname.slice(1));
+});
+
+const AssetFiles = HttpRouter.add('GET', `${ASSET_ROUTE}/*`, (request) =>
+  Effect.gen(function* () {
+    const repo = yield* Repo;
+
+    return yield* fileWithin(repo.assets, pathnameOf(request).slice(ASSET_ROUTE.length + 1));
   }),
 );
 
@@ -129,7 +144,7 @@ const Announce = Layer.effectDiscard(
 );
 
 export const serverLayer = (options: Context.Service.Shape<typeof ServeOptions>) =>
-  HttpRouter.serve(Layer.mergeAll(RpcRoute, ExplainerPage, StaticFiles), {
+  HttpRouter.serve(Layer.mergeAll(RpcRoute, ExplainerPage, AssetFiles, StaticFiles), {
     disableListenLog: true,
     disableLogger: true,
   }).pipe(
