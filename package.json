@@ -21,16 +21,16 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
-    "@effect/language-service": "0.87.4",
-    "@effect/platform-node": "4.0.0-rc.118",
-    "@effect/platform-node-shared": "4.0.0-rc.118",
-    "effect": "4.0.0-rc.118",
+    "@effect/language-service": "0.87.5",
+    "@effect/platform-node": "4.1.2",
+    "@effect/platform-node-shared": "4.1.2",
+    "effect": "4.1.2",
     "typescript-language-server": "5.1.3",
     "vscode-langservers-extracted": "4.10.0"
   },
   "devDependencies": {
-    "@effect/atom-react": "4.0.0-rc.118",
-    "@effect/platform-browser": "4.0.0-rc.118",
+    "@effect/atom-react": "4.1.2",
+    "@effect/platform-browser": "4.1.2",
     "@pierre/diffs": "^1.4.3",
     "@types/node": "^26.6.2",
     "@types/react": "^19.3.0",
@@ -44,9 +44,9 @@
     "vite": "^8.3.0"
   },
   "overrides": {
-    "effect": "4.0.0-rc.118",
-    "@effect/platform-node": "4.0.0-rc.118",
-    "@effect/platform-node-shared": "4.0.0-rc.118"
+    "effect": "4.1.2",
+    "@effect/platform-node": "4.1.2",
+    "@effect/platform-node-shared": "4.1.2"
   },
   "pi": {
     "skills": [
