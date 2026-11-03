@@ -18,7 +18,10 @@
     "build": "vite build && tsc -p tsconfig.json",
     "dev": "vite build --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json --noEmit",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm build",
+    "lint": "oxlint --type-aware --deny-warnings",
+    "patch": "effect-tsgo patch --oxlint",
+    "prepare": "pnpm run patch"
   },
   "dependencies": {
     "@effect/language-service": "0.87.5",
@@ -31,11 +34,14 @@
   "devDependencies": {
     "@effect/atom-react": "4.1.2",
     "@effect/platform-browser": "4.1.2",
+    "@effect/tsgo": "0.64.1",
     "@pierre/diffs": "^1.4.3",
     "@types/node": "^26.6.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "oxlint": "1.90.0",
+    "oxlint-tsgolint": "7.0.2005",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
