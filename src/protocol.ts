@@ -138,19 +138,19 @@ export const ThreadEvent = Schema.Struct({
 });
 export type ThreadEvent = typeof ThreadEvent.Type;
 
-export class NoteMissing extends Schema.TaggedError<NoteMissing>()('NoteMissing', { id: Schema.String }) {
+export class NoteMissing extends Schema.TaggedError<NoteMissing, { readonly brand: unique symbol }>()('NoteMissing', { id: Schema.String }) {
   override get message() {
     return `no note ${this.id}`;
   }
 }
 
-export class NoteUnsaved extends Schema.TaggedError<NoteUnsaved>()('NoteUnsaved', { reason: Schema.String }) {
+export class NoteUnsaved extends Schema.TaggedError<NoteUnsaved, { readonly brand: unique symbol }>()('NoteUnsaved', { reason: Schema.String }) {
   override get message() {
     return this.reason;
   }
 }
 
-export class FileMissing extends Schema.TaggedError<FileMissing>()('FileMissing', {
+export class FileMissing extends Schema.TaggedError<FileMissing, { readonly brand: unique symbol }>()('FileMissing', {
   side: Schema.Literals(['old', 'new']),
   path: Schema.String,
 }) {}
@@ -192,7 +192,7 @@ export const CodeLocation = Schema.Struct({
 });
 export type CodeLocation = typeof CodeLocation.Type;
 
-export class LanguageUnavailable extends Schema.TaggedError<LanguageUnavailable>()('LanguageUnavailable', {
+export class LanguageUnavailable extends Schema.TaggedError<LanguageUnavailable, { readonly brand: unique symbol }>()('LanguageUnavailable', {
   path: Schema.String,
   reason: Schema.String,
 }) {
@@ -201,7 +201,7 @@ export class LanguageUnavailable extends Schema.TaggedError<LanguageUnavailable>
   }
 }
 
-export class ExplainerMissing extends Schema.TaggedError<ExplainerMissing>()('ExplainerMissing', {
+export class ExplainerMissing extends Schema.TaggedError<ExplainerMissing, { readonly brand: unique symbol }>()('ExplainerMissing', {
   path: Schema.String,
 }) {
   override get message() {

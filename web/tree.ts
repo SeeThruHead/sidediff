@@ -1,24 +1,24 @@
 import type { FilePatch } from './patch';
 
-export interface TreeDirectory {
+export type TreeDirectory = {
   readonly kind: 'directory';
   readonly name: string;
   readonly path: string;
   readonly children: readonly TreeNode[];
-}
+};
 
-export interface TreeFile {
+export type TreeFile = {
   readonly kind: 'file';
   readonly name: string;
   readonly file: FilePatch;
-}
+};
 
 export type TreeNode = TreeDirectory | TreeFile;
 
-interface Branch {
+type Branch = {
   readonly directories: ReadonlyMap<string, Branch>;
   readonly files: readonly FilePatch[];
-}
+};
 
 const emptyBranch: Branch = { directories: new Map(), files: [] };
 

@@ -12,10 +12,10 @@ import { type FilePatch, type Note, isLineInDiff } from './patch';
 import type { PaletteName } from './themes';
 import { diffCss, palettes } from './themes';
 
-interface Placement {
+type Placement = {
   readonly id: string;
   readonly top: number;
-}
+};
 
 const GAP = 8;
 

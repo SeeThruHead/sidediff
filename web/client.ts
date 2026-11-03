@@ -53,10 +53,10 @@ export const snapshotAtom = SidediffClient.runtime
   )
   .pipe(Atom.keepAlive);
 
-export interface Delivered {
+export type Delivered = {
   readonly command: Command;
   readonly sequence: number;
-}
+};
 
 export const commandAtom = SidediffClient.runtime.atom(
   resilient(Stream.unwrap(SidediffClient.use((client) => Effect.succeed(client('Commands', undefined))))).pipe(

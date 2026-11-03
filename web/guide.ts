@@ -29,11 +29,12 @@ export const lineRows = (target: Target): HTMLElement[] => {
   const root = shadowRootOf(target.file);
   if (root === null || target.start === undefined) return [];
 
-  const end = target.end ?? target.start;
+  const start = target.start;
+  const end = target.end ?? start;
   const code =
     root.querySelector(`code[data-${target.side}]`) ?? root.querySelector('code[data-unified]') ?? root;
 
-  return Array.from({ length: end - target.start + 1 }, (_, offset) => target.start! + offset).flatMap(
+  return Array.from({ length: end - start + 1 }, (_, offset) => start + offset).flatMap(
     (line) => {
       const row = code.querySelector<HTMLElement>(`[data-line="${line}"]`);
       return row === null ? [] : [row];

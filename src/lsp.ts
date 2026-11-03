@@ -16,7 +16,7 @@ import {
 } from 'effect';
 import { ChildProcess, ChildProcessSpawner } from 'effect/process';
 
-export class LspFailed extends Schema.TaggedError<LspFailed>()('LspFailed', {
+export class LspFailed extends Schema.TaggedError<LspFailed, { readonly brand: unique symbol }>()('LspFailed', {
   server: Schema.String,
   method: Schema.String,
   reason: Schema.String,
@@ -39,7 +39,7 @@ export const LspRange = Schema.Struct({ start: Position, end: Position });
 export const LspDiagnostic = Schema.Struct({
   range: LspRange,
   severity: Schema.optionalKey(Schema.Int),
-  code: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number])),
+  code: Schema.optionalKey(Schema.Union([Schema.String, Schema.Int])),
   source: Schema.optionalKey(Schema.String),
   message: Schema.String,
 });

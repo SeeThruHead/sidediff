@@ -69,6 +69,19 @@ const toDiagnostic = (server: string, diagnostic: LspDiagnostic): Diagnostic => 
   endColumn: diagnostic.range.end.character + 1,
 });
 
+const unavailable = (relative: string, reason: string) => new LanguageUnavailable({ path: relative, reason });
+
+const positionParams = (file: string, at: CodePosition) => ({
+  textDocument: { uri: fileUri(file) },
+  position: { line: at.line - 1, character: at.offset - 1 },
+});
+
+const ask = (server: Context.Service.Shape<typeof LspServer>, method: string, params: unknown) =>
+  server.request(method, params).pipe(
+    Effect.tapError((error) => Effect.logDebug(`[lsp] ${server.id} ${method} failed`, error)),
+    Effect.orElseSucceed(() => null),
+  );
+
 export class LanguageService extends Context.Service<
   LanguageService,
   {
@@ -87,8 +100,6 @@ export class LanguageService extends Context.Service<
       const catalog = yield* LanguageServerCatalog;
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-
-      const unavailable = (relative: string, reason: string) => new LanguageUnavailable({ path: relative, reason });
 
       const absoluteOf = (relative: string) => path.join(repo.root, relative);
 
@@ -121,17 +132,6 @@ export class LanguageService extends Context.Service<
 
         return { file, servers: live };
       });
-
-      const positionParams = (file: string, at: CodePosition) => ({
-        textDocument: { uri: fileUri(file) },
-        position: { line: at.line - 1, character: at.offset - 1 },
-      });
-
-      const ask = (server: Context.Service.Shape<typeof LspServer>, method: string, params: unknown) =>
-        server.request(method, params).pipe(
-          Effect.tapError((error) => Effect.logDebug(`[lsp] ${server.id} ${method} failed`, error)),
-          Effect.orElseSucceed(() => null),
-        );
 
       const lineOf = (file: string, line: number) =>
         fs.readFileString(file).pipe(

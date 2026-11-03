@@ -128,9 +128,8 @@ const Announce = Layer.effectDiscard(
 
     yield* Effect.acquireRelease(
       fs.makeDirectory(repo.state, { recursive: true }).pipe(
-        Effect.andThen(
-          fs.writeFileString(repo.serverFile, JSON.stringify(Schema.encodeSync(ServerInfo)(info))),
-        ),
+        Effect.andThen(Schema.encodeEffect(Schema.fromJsonString(ServerInfo))(info)),
+        Effect.flatMap((json) => fs.writeFileString(repo.serverFile, json)),
       ),
       () =>
         fs.readFileString(repo.serverFile).pipe(

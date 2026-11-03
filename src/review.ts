@@ -68,6 +68,11 @@ const awaitsAgent = (event: ThreadEvent) =>
 const versionOf = (patch: string, notes: unknown) =>
   createHash('sha1').update(patch).update(JSON.stringify(notes)).digest('hex').slice(0, 12);
 
+const isFresh = (now: DateTime.Utc) => (entry: Working) =>
+  DateTime.toEpochMillis(now) - Date.parse(entry.since) < Duration.toMillis(WORKING_LIMIT);
+
+const unsaved = (error: { readonly message: string }) => new NoteUnsaved({ reason: error.message });
+
 export class Review extends Context.Service<
   Review,
   {
@@ -118,7 +123,7 @@ export class Review extends Context.Service<
         ([patch, branch]) => ({ patch, branch }),
       );
 
-      const diff = yield* SubscriptionRef.make(yield* readPatch);
+      const diff = yield* readPatch.pipe(Effect.flatMap(SubscriptionRef.make));
 
       const refresh = readPatch.pipe(
         Effect.flatMap((next) =>
@@ -147,9 +152,6 @@ export class Review extends Context.Service<
 
       const setWorking = (noteId: string, status: string | undefined, done: boolean) =>
         done ? stopWorking(noteId) : startWorking(noteId, status);
-
-      const isFresh = (now: DateTime.Utc) => (entry: Working) =>
-        DateTime.toEpochMillis(now) - Date.parse(entry.since) < Duration.toMillis(WORKING_LIMIT);
 
       yield* DateTime.now.pipe(
         Effect.flatMap((now) =>
@@ -277,8 +279,6 @@ export class Review extends Context.Service<
 
       const events = yield* Ref.make<readonly ThreadEvent[]>([]);
       const threadEvents = yield* PubSub.unbounded<ThreadEvent>();
-
-      const unsaved = (error: { readonly message: string }) => new NoteUnsaved({ reason: error.message });
 
       const record = Effect.fnUntraced(function* (
         kind: ThreadEvent['kind'],

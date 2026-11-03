@@ -192,5 +192,15 @@
     "effecttsgo/suspend-fail-to-fail-sync": "error",
     "effecttsgo/type-union-to-schema-union": "error",
     "effecttsgo/yield-in-call-argument": "error"
-  }
+  },
+  "overrides": [
+    {
+      "files": [
+        "web/**"
+      ],
+      "rules": {
+        "effecttsgo/global-timers": "off"
+      }
+    }
+  ]
 }

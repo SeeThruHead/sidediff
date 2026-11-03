@@ -14,13 +14,13 @@ export type AgentId = (typeof agents)[number]['id'];
 
 export const agentIds = agents.map((agent) => agent.id);
 
-export class SkillMissing extends Schema.TaggedError<SkillMissing>()('SkillMissing', { path: Schema.String }) {
+export class SkillMissing extends Schema.TaggedError<SkillMissing, { readonly brand: unique symbol }>()('SkillMissing', { path: Schema.String }) {
   override get message() {
     return `the packaged skill is missing at ${this.path}; reinstall sidediff`;
   }
 }
 
-export class NothingChosen extends Schema.TaggedError<NothingChosen>()('NothingChosen', {}) {
+export class NothingChosen extends Schema.TaggedError<NothingChosen, { readonly brand: unique symbol }>()('NothingChosen', {}) {
   override get message() {
     return 'no skills folder chosen; pass --agent <name> or --dir <folder>';
   }
@@ -63,7 +63,7 @@ const askForAgents = Effect.gen(function* () {
       title: agent.title,
       value: agent.id,
       description: path.join('~', ...agent.skills),
-      selected: present[index] === true,
+      selected: present[index] ?? false,
     })),
     min: 1,
   });

@@ -17,31 +17,32 @@ import {
   type Diagnostic,
   type HoverInfo,
   type Command as ViewCommand,
+  Note,
   NoteBatch,
   SidediffRpcs,
 } from './protocol.js';
 import { Repo } from './repo.js';
 import { ServerInfo, freePort, serverLayer } from './server.js';
 
-class NoServer extends Schema.TaggedError<NoServer>()('NoServer', { serverFile: Schema.String }) {
+class NoServer extends Schema.TaggedError<NoServer, { readonly brand: unique symbol }>()('NoServer', { serverFile: Schema.String }) {
   override get message() {
     return 'no sidediff server is running for this repository; start one with `sidediff <range>`';
   }
 }
 
-class NotARepository extends Schema.TaggedError<NotARepository>()('NotARepository', { cwd: Schema.String }) {
+class NotARepository extends Schema.TaggedError<NotARepository, { readonly brand: unique symbol }>()('NotARepository', { cwd: Schema.String }) {
   override get message() {
     return `${this.cwd} is not inside a git repository; sidediff reviews a git diff, so run it from the repository you want to review`;
   }
 }
 
-class BadLocation extends Schema.TaggedError<BadLocation>()('BadLocation', { value: Schema.String }) {
+class BadLocation extends Schema.TaggedError<BadLocation, { readonly brand: unique symbol }>()('BadLocation', { value: Schema.String }) {
   override get message() {
     return `cannot read location ${this.value}, expected <file>[:line[-end]]`;
   }
 }
 
-class BadPosition extends Schema.TaggedError<BadPosition>()('BadPosition', { value: Schema.String }) {
+class BadPosition extends Schema.TaggedError<BadPosition, { readonly brand: unique symbol }>()('BadPosition', { value: Schema.String }) {
   override get message() {
     return `cannot read position ${this.value}, expected <file>:<line>:<column>`;
   }
@@ -79,7 +80,7 @@ const withClient = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.provide(e
 const send = (command: ViewCommand) =>
   Client.use((client) => client.Send({ command })).pipe(Effect.flatMap(print), withClient);
 
-const location = Argument.String('location').pipe(Argument.withDescription('<file>[:line[-end]]'));
+const locationArgument = Argument.String('location').pipe(Argument.withDescription('<file>[:line[-end]]'));
 
 const parseLocation = (value: string) => {
   const match = /^(.+?)(?::(\d+)(?:-(\d+))?)?$/.exec(value);
@@ -95,7 +96,7 @@ const parseLocation = (value: string) => {
   });
 };
 
-const side = Flag.Literals('side', ['old', 'new']).pipe(
+const sideFlag = Flag.Literals('side', ['old', 'new']).pipe(
   Flag.withDefault('new'),
   Flag.map((value) => (value === 'old' ? ('deletions' as const) : ('additions' as const))),
 );
@@ -107,15 +108,15 @@ const defined = <A extends Record<string, unknown>>(fields: A) =>
     [K in keyof A]: Exclude<A[K], undefined>;
   };
 
-const speak = Flag.Boolean('speak').pipe(Flag.withDefault(false));
+const speakFlag = Flag.Boolean('speak').pipe(Flag.withDefault(false));
 
-const show = Command.make('show', { location, side }, ({ location, side }) =>
+const show = Command.make('show', { location: locationArgument, side: sideFlag }, ({ location, side }) =>
   Effect.flatMap(parseLocation(location), (target) => send({ type: 'show', ...target, side })),
 ).pipe(Command.withDescription('scroll the open view to <file>[:line[-end]]'));
 
 const highlight = Command.make(
   'highlight',
-  { location, side, text: optionalText('text') },
+  { location: locationArgument, side: sideFlag, text: optionalText('text') },
   ({ location, side, text }) =>
     Effect.flatMap(parseLocation(location), (target) =>
       send({ type: 'highlight', ...target, side, ...defined({ text }) }),
@@ -124,15 +125,15 @@ const highlight = Command.make(
 
 const say = Command.make(
   'say',
-  { text: Argument.String('text').pipe(Argument.variadic({ min: 1 })), speak },
+  { text: Argument.String('text').pipe(Argument.variadic({ min: 1 })), speak: speakFlag },
   ({ text, speak }) => send({ type: 'say', text: text.join(' '), speak }),
 ).pipe(Command.withDescription('show a caption'));
 
-const section = Command.make('section', { anchor: Argument.String('anchor') }, ({ anchor }) =>
+const sectionCommand = Command.make('section', { anchor: Argument.String('anchor') }, ({ anchor }) =>
   send({ type: 'section', anchor }),
 ).pipe(Command.withDescription('open the explainer panel at the element with this id'));
 
-const explainer = Command.make(
+const explainerCommand = Command.make(
   'explainer',
   {
     file: Argument.String('file').pipe(Argument.optional),
@@ -159,13 +160,13 @@ const clear = Command.make('clear', {}, () => send({ type: 'clear' })).pipe(
   Command.withDescription('remove highlights and captions'),
 );
 
-class EmptyReply extends Schema.TaggedError<EmptyReply>()('EmptyReply', {}) {
+class EmptyReply extends Schema.TaggedError<EmptyReply, { readonly brand: unique symbol }>()('EmptyReply', {}) {
   override get message() {
     return 'nothing to send: give reply text, --body-file or --image';
   }
 }
 
-class GuideNeedsLine extends Schema.TaggedError<GuideNeedsLine>()('GuideNeedsLine', { value: Schema.String }) {
+class GuideNeedsLine extends Schema.TaggedError<GuideNeedsLine, { readonly brand: unique symbol }>()('GuideNeedsLine', { value: Schema.String }) {
   override get message() {
     return `guide needs a line to point at, as <file>:<line>[-end]; got ${this.value}`;
   }
@@ -177,12 +178,12 @@ const describedText = (name: string, description: string) =>
 const guide = Command.make(
   'guide',
   {
-    location,
+    location: locationArgument,
     why: Argument.String('why').pipe(
       Argument.variadic({ min: 1 }),
       Argument.withDescription('why the reviewer should care about this code'),
     ),
-    side,
+    side: sideFlag,
     section: describedText('section', 'id of the explainer section to scroll into view beside it'),
     text: describedText('text', 'a substring to mark inside the lines'),
     detail: describedText('detail', 'a longer explanation shown under the comment'),
@@ -228,7 +229,7 @@ const where = Command.make('where', {}, () =>
   ),
 ).pipe(Command.withDescription('what the reader is looking at'));
 
-const position = Argument.String('position').pipe(Argument.withDescription('<file>:<line>:<column>'));
+const positionArgument = Argument.String('position').pipe(Argument.withDescription('<file>:<line>:<column>'));
 
 const parsePosition = Effect.fnUntraced(function* (value: string): Effect.fn.Return<CodePosition, BadPosition> {
   const match = /^(.+):(\d+):(\d+)$/.exec(value);
@@ -270,7 +271,7 @@ const printLocations = (found: readonly CodeLocation[]) =>
     ? Console.log('nothing found')
     : Effect.forEach(found, (entry) => Console.log(formatLocation(entry)), { discard: true });
 
-const hover = Command.make('hover', { position }, ({ position }) =>
+const hover = Command.make('hover', { position: positionArgument }, ({ position }) =>
   parsePosition(position).pipe(
     Effect.flatMap((at) => Client.use((client) => client.Hover(at))),
     Effect.flatMap((info) => Console.log(info === null ? 'no type information here' : formatHover(info))),
@@ -278,7 +279,7 @@ const hover = Command.make('hover', { position }, ({ position }) =>
   ),
 ).pipe(Command.withDescription("type information at <file>:<line>:<column>, from the repository's TypeScript"));
 
-const definition = Command.make('definition', { position }, ({ position }) =>
+const definition = Command.make('definition', { position: positionArgument }, ({ position }) =>
   parsePosition(position).pipe(
     Effect.flatMap((at) => Client.use((client) => client.Definition(at))),
     Effect.flatMap(printLocations),
@@ -286,7 +287,7 @@ const definition = Command.make('definition', { position }, ({ position }) =>
   ),
 ).pipe(Command.withDescription('where the symbol at <file>:<line>:<column> is defined'));
 
-const references = Command.make('references', { position }, ({ position }) =>
+const references = Command.make('references', { position: positionArgument }, ({ position }) =>
   parsePosition(position).pipe(
     Effect.flatMap((at) => Client.use((client) => client.References(at))),
     Effect.flatMap(printLocations),
@@ -350,7 +351,7 @@ const noteApply = Command.make('apply', {}, () =>
     const stdio = yield* Stdio.Stdio;
 
     const text = yield* Stream.mkString(Stream.decodeText(stdio.stdin));
-    const batch = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(NoteBatch))(text);
+    const batch = yield* Schema.decodeEffect(Schema.fromJsonString(NoteBatch))(text);
     const inputs = 'comments' in batch ? batch.comments : batch;
     const added = yield* serverOr(
       (client) => client.AddNotes({ notes: inputs }),
@@ -365,6 +366,8 @@ const noteApply = Command.make('apply', {}, () =>
   ),
 );
 
+const NotesJson = Schema.fromJsonString(Schema.Array(Note), { space: 2 });
+
 const noteList = Command.make(
   'list',
   { json: Flag.Boolean('json').pipe(Flag.withDefault(false)), file: optionalText('file') },
@@ -373,7 +376,7 @@ const noteList = Command.make(
       const all = yield* serverOr((client) => client.ListNotes(), Notes.use((notes) => notes.list));
       const shown = all.filter((note) => file === undefined || note.filePath === file);
 
-      if (json) return yield* Console.log(JSON.stringify(shown, null, 2));
+      if (json) return yield* Schema.encodeEffect(NotesJson)(shown).pipe(Effect.flatMap(Console.log));
 
       yield* Effect.forEach(shown, (note) =>
         Console.log(
@@ -574,7 +577,7 @@ const sidediff = Command.make(
       const url = `http://${host}:${chosen}`;
       const page = explainer === undefined ? null : path.resolve(explainer);
 
-      yield* Layer.launch(
+      return yield* Layer.launch(
         serverLayer({ range, port: chosen, host, watch, explainer: page }).pipe(
           Layer.merge(
             Layer.effectDiscard(
@@ -597,8 +600,8 @@ const sidediff = Command.make(
     guide,
     say,
     clear,
-    explainer,
-    section,
+    explainerCommand,
+    sectionCommand,
     where,
     hover,
     definition,

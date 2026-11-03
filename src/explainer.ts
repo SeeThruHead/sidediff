@@ -4,8 +4,9 @@ import { ExplainerMissing, type ExplainerInfo, NoteUnsaved } from './protocol.js
 import { Repo } from './repo.js';
 
 const Saved = Schema.Struct({ path: Schema.String });
-
-const decodeSaved = Schema.decodeUnknownEffect(Schema.fromJsonString(Saved));
+const SavedJson = Schema.fromJsonString(Saved);
+const decodeSaved = Schema.decodeUnknownEffect(SavedJson);
+const encodeSaved = Schema.encodeEffect(SavedJson);
 
 type Current = { readonly path: string; readonly info: ExplainerInfo };
 
@@ -32,17 +33,21 @@ export class Explainer extends Context.Service<
 
       const stamp = (file: string) =>
         fs.stat(file).pipe(
-          Effect.map((info) => `${Option.match(info.mtime, { onNone: () => 0, onSome: (date) => date.getTime() })}-${String(info.size)}`),
-          Effect.mapError(() => new ExplainerMissing({ path: file })),
+          Effect.mapBoth({
+            onSuccess: (info) => `${Option.match(info.mtime, { onNone: () => 0, onSome: (date) => date.getTime() })}-${String(info.size)}`,
+            onFailure: () => new ExplainerMissing({ path: file }),
+          }),
         );
 
       const inspect = (file: string) =>
         Effect.all([stamp(file), fs.readFileString(file)]).pipe(
-          Effect.map(([version, html]): Current => ({
-            path: file,
-            info: { title: titleOf(html, path.basename(file)), version },
-          })),
-          Effect.mapError(() => new ExplainerMissing({ path: file })),
+          Effect.mapBoth({
+            onSuccess: ([version, html]): Current => ({
+              path: file,
+              info: { title: titleOf(html, path.basename(file)), version },
+            }),
+            onFailure: () => new ExplainerMissing({ path: file }),
+          }),
         );
 
       const saved = yield* fs.readFileString(explainerFile).pipe(
@@ -59,12 +64,13 @@ export class Explainer extends Context.Service<
         file === null
           ? fs.remove(explainerFile, { force: true }).pipe(Effect.mapError(unsaved))
           : fs.makeDirectory(directory, { recursive: true }).pipe(
-              Effect.andThen(fs.writeFileString(explainerFile, JSON.stringify(Schema.encodeSync(Saved)({ path: file })))),
+              Effect.andThen(encodeSaved({ path: file })),
+              Effect.flatMap((json) => fs.writeFileString(explainerFile, json)),
               Effect.mapError(unsaved),
             );
 
       const set = Effect.fn('Explainer.set')(function* (file: string | null) {
-        const next = file === null ? Option.none<Current>() : Option.some(yield* inspect(path.resolve(file)));
+        const next = file === null ? Option.none<Current>() : yield* Effect.asSome(inspect(path.resolve(file)));
 
         yield* persist(Option.getOrNull(Option.map(next, (current) => current.path)));
         yield* SubscriptionRef.set(state, next);

@@ -3,26 +3,26 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { interimAtom, registry } from './client';
 
-interface RecognitionResult {
+type RecognitionResult = {
   readonly isFinal: boolean;
   readonly 0: { readonly transcript: string };
-}
+};
 
-interface RecognitionEvent {
+type RecognitionEvent = {
   readonly resultIndex: number;
   readonly results: ArrayLike<RecognitionResult>;
-}
+};
 
-interface Recognition {
+type Recognition = {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
-  onresult: ((event: RecognitionEvent) => void) | null;
-  onend: (() => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
+  addEventListener(type: 'result', listener: (event: RecognitionEvent) => void): void;
+  addEventListener(type: 'error', listener: (event: { readonly error: string }) => void): void;
+  addEventListener(type: 'end', listener: () => void): void;
   start: () => void;
   stop: () => void;
-}
+};
 
 type RecognitionConstructor = new () => Recognition;
 
@@ -55,21 +55,21 @@ export const useVoice = (onFinal: (text: string) => void) => {
     instance.continuous = true;
     instance.interimResults = true;
     instance.lang = navigator.language || 'en-US';
-    instance.onresult = (event) => {
+    instance.addEventListener('result', (event) => {
       const results = Array.from(event.results).slice(event.resultIndex);
       const finals = results.filter((result) => result.isFinal).map((result) => result[0].transcript);
       const pending = results.filter((result) => !result.isFinal).map((result) => result[0].transcript);
 
       finals.filter((text) => text.trim().length > 0).forEach((text) => onFinalRef.current(text.trim()));
       setInterimText(pending.join(' '));
-    };
-    instance.onerror = (event) => {
+    });
+    instance.addEventListener('error', (event) => {
       if (event.error !== 'no-speech' && event.error !== 'aborted') setError(event.error);
-    };
-    instance.onend = () => {
+    });
+    instance.addEventListener('end', () => {
       if (wanted.current) instance.start();
       else setListening(false);
-    };
+    });
 
     wanted.current = true;
     recognition.current = instance;

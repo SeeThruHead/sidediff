@@ -1,13 +1,13 @@
 export type { Note, Snapshot } from '../src/protocol';
 
-export interface FilePatch {
+export type FilePatch = {
   readonly path: string;
   readonly previousPath: string | null;
   readonly status: 'added' | 'deleted' | 'renamed' | 'modified';
   readonly patch: string;
   readonly additions: number;
   readonly deletions: number;
-}
+};
 
 const headerPath = (header: string): { path: string; previousPath: string } => {
   const match = /^diff --git a\/(.+?) b\/(.+)$/.exec(header);

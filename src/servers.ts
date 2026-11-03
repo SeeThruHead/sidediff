@@ -166,7 +166,9 @@ export class LanguageServerCatalog extends Context.Service<
       });
 
       const eslint = Effect.fnUntraced(function* (from: string) {
-        const library = directoryOf(yield* nearest(from, ['node_modules/eslint/package.json']), 3);
+        const library = yield* nearest(from, ['node_modules/eslint/package.json']).pipe(
+          Effect.map((found) => directoryOf(found, 3)),
+        );
         const config = yield* nearest(from, ESLINT_CONFIGS);
         if (Option.isNone(library)) return Option.none<LaunchSpec>();
         if (Option.isNone(config)) return Option.none<LaunchSpec>();

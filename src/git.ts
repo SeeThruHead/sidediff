@@ -1,9 +1,9 @@
 import { Context, Effect, Layer, Schema, Stream } from 'effect';
 import { ChildProcess, ChildProcessSpawner } from 'effect/process';
 
-export class GitFailed extends Schema.TaggedError<GitFailed>()('GitFailed', {
+export class GitFailed extends Schema.TaggedError<GitFailed, { readonly brand: unique symbol }>()('GitFailed', {
   args: Schema.Array(Schema.String),
-  exitCode: Schema.Number,
+  exitCode: Schema.Int,
 }) {}
 
 export class Git extends Context.Service<

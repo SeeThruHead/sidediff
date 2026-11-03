@@ -3,7 +3,7 @@ import { Context, DateTime, Effect, FileSystem, Layer, Option, Path, Random, Sch
 import { Note, type NoteInput, NoteMissing } from './protocol.js';
 import { Repo } from './repo.js';
 
-export class NoteWithoutLine extends Schema.TaggedError<NoteWithoutLine>()('NoteWithoutLine', {
+export class NoteWithoutLine extends Schema.TaggedError<NoteWithoutLine, { readonly brand: unique symbol }>()('NoteWithoutLine', {
   filePath: Schema.String,
 }) {
   override get message() {
@@ -11,7 +11,7 @@ export class NoteWithoutLine extends Schema.TaggedError<NoteWithoutLine>()('Note
   }
 }
 
-export class NotesUnwritable extends Schema.TaggedError<NotesUnwritable>()('NotesUnwritable', {
+export class NotesUnwritable extends Schema.TaggedError<NotesUnwritable, { readonly brand: unique symbol }>()('NotesUnwritable', {
   directory: Schema.String,
 }) {
   override get message() {
@@ -84,10 +84,7 @@ export class Notes extends Context.Service<
 
       const find = (id: string) =>
         Effect.flatMap(SubscriptionRef.get(state), (current) =>
-          Option.match(Option.fromNullishOr(current.find((note) => note.id === id)), {
-            onNone: () => Effect.fail(new NoteMissing({ id })),
-            onSome: Effect.succeed,
-          }),
+          Effect.fromOption(Option.fromNullishOr(current.find((note) => note.id === id)), () => new NoteMissing({ id })),
         );
 
       const toNote = Effect.fnUntraced(function* (input: NoteInput) {

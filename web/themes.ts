@@ -1,6 +1,6 @@
 import { registerCustomTheme } from '@pierre/diffs';
 
-interface Base16 {
+type Base16 = {
   readonly name: string;
   readonly base00: string;
   readonly code: string;
@@ -18,7 +18,7 @@ interface Base16 {
   readonly base0D: string;
   readonly base0E: string;
   readonly base0F: string;
-}
+};
 
 export const palettes = {
   'base16-tomorrow-night': {

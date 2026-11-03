@@ -5,7 +5,7 @@ import { Repo } from './repo.js';
 
 export const ASSET_ROUTE = '/attachments';
 
-export class AssetUnreadable extends Schema.TaggedError<AssetUnreadable>()('AssetUnreadable', {
+export class AssetUnreadable extends Schema.TaggedError<AssetUnreadable, { readonly brand: unique symbol }>()('AssetUnreadable', {
   file: Schema.String,
 }) {
   override get message() {
@@ -15,7 +15,7 @@ export class AssetUnreadable extends Schema.TaggedError<AssetUnreadable>()('Asse
 
 const imageExtensions: ReadonlySet<string> = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg']);
 
-export class AssetNotAnImage extends Schema.TaggedError<AssetNotAnImage>()('AssetNotAnImage', {
+export class AssetNotAnImage extends Schema.TaggedError<AssetNotAnImage, { readonly brand: unique symbol }>()('AssetNotAnImage', {
   file: Schema.String,
 }) {
   override get message() {
