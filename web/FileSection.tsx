@@ -11,6 +11,10 @@ import { RichText } from './Markdown';
 import { type FilePatch, type Note, isLineInDiff } from './patch';
 import type { PaletteName } from './themes';
 import { diffCss, palettes } from './themes';
+import type { Point } from './vim/actions';
+import { markUnread, watchShadow } from './vim/dom';
+
+export type ComposeRequest = { readonly side: 'additions' | 'deletions'; readonly line: number; readonly nonce: number };
 
 interface Placement {
   readonly id: string;
@@ -343,6 +347,12 @@ export const FileSection = memo(function FileSection({
   releaseSelection,
   onViewed,
   onFocusNote,
+  cursorAt,
+  unread,
+  readLines,
+  changedLines,
+  composeRequest,
+  onLineClick,
 }: {
   file: FilePatch;
   notes: readonly Note[];
@@ -359,6 +369,12 @@ export const FileSection = memo(function FileSection({
   releaseSelection: () => void;
   onViewed: (file: FilePatch, viewed: boolean) => void;
   onFocusNote: (id: string) => void;
+  cursorAt: Point | null | undefined;
+  unread: string;
+  readLines: number;
+  changedLines: number;
+  composeRequest: ComposeRequest | null;
+  onLineClick: (path: string, at: Point) => void;
 }) {
   const sectionRef = useRef<HTMLElement | null>(null);
   const columnRef = useRef<HTMLDivElement | null>(null);
@@ -403,6 +419,25 @@ export const FileSection = memo(function FileSection({
   const holdsSelection = useRef(selection !== null);
   holdsSelection.current = selection !== null;
 
+  useEffect(() => {
+    if (composeRequest === null) return;
+
+    setComposer({ side: composeRequest.side, line: composeRequest.line });
+  }, [composeRequest]);
+
+  const unreadCells = useMemo(() => new Set(unread === '' ? [] : unread.split(' ')), [unread]);
+
+  useEffect(() => {
+    const section = sectionRef.current;
+    if (section === null) return;
+    if (collapsed || !mounted) return;
+
+    return watchShadow(section, () => markUnread(section, unreadCells));
+  }, [unreadCells, collapsed, mounted, diffStyle]);
+
+  const cursorSelection =
+    cursorAt === undefined || cursorAt === null ? null : { start: cursorAt.line, end: cursorAt.line, side: cursorAt.side };
+
   const diffOptions = useMemo(
     () => ({
       diffStyle,
@@ -423,8 +458,10 @@ export const FileSection = memo(function FileSection({
       },
       onGutterUtilityClick: (range: { end: number; side?: 'additions' | 'deletions' }) =>
         setComposer({ side: range.side === 'deletions' ? 'deletions' : 'additions', line: range.end }),
+      onLineClick: (line: { lineNumber: number; annotationSide: 'additions' | 'deletions' }) =>
+        onLineClick(file.path, { side: line.annotationSide, line: line.lineNumber }),
     }),
-    [diffStyle, palette, file, releaseSelection],
+    [diffStyle, palette, file, releaseSelection, onLineClick],
   );
 
   const composerView =
@@ -514,7 +551,7 @@ export const FileSection = memo(function FileSection({
 
   return (
     <section ref={sectionRef} className="file" id={`file-${file.path}`}>
-      <div className={viewed ? 'file-header viewed' : 'file-header'}>
+      <div className={['file-header', viewed ? 'viewed' : '', cursorAt === null ? 'cursor' : ''].join(' ').trim()}>
         <button
           className="chevron"
           aria-label={collapsed ? 'Expand file' : 'Collapse file'}
@@ -542,6 +579,14 @@ export const FileSection = memo(function FileSection({
           </span>
         )}
         {annotations.length > 0 && <span className="note-count">{annotations.length} notes</span>}
+        {changedLines > 0 && (
+          <span
+            className={readLines === changedLines ? 'read-count done' : 'read-count'}
+            title="Changed lines that were on screen long enough to read"
+          >
+            read {readLines}/{changedLines}
+          </span>
+        )}
         <label className={viewed ? 'viewed-toggle checked' : 'viewed-toggle'}>
           <input
             type="checkbox"
@@ -563,7 +608,7 @@ export const FileSection = memo(function FileSection({
               disableWorkerPool
               options={diffOptions}
               lineAnnotations={lineAnnotations}
-              selectedLines={selection}
+              selectedLines={selection ?? cursorSelection}
               renderAnnotation={(annotation) => {
                 const { id, type } = annotation.metadata;
                 const comment = comments.find((note) => note.id === id);

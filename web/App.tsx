@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isComment } from '../src/protocol';
 import { CodePanel, HoverCard, LinkCursor } from './code';
 import { type DiffLink, ExplainerLinks, ExplainerPanel, MIN_WIDTH, type SectionRequest } from './Explainer';
-import { FileSection, OutdatedComments } from './FileSection';
+import { type ComposeRequest, FileSection, OutdatedComments } from './FileSection';
 import { useGuide } from './guide';
 import { GuideLayer } from './GuideLayer';
 import { type FilePatch, type Note, type Snapshot, splitPatch } from './patch';
@@ -15,8 +15,18 @@ import { type PaletteName, palettes, uiVars } from './themes';
 import { buildTree, filesInOrder } from './tree';
 import { useViewed } from './viewed';
 import { parseIntent } from './intents';
-import { connectedAtom, reportView, sendUtterance, snapshotAtom } from './client';
+import { connectedAtom, reportView, sendUtterance, snapshotAtom, sourceAtomFor } from './client';
 import { useVoice } from './voice';
+import type { Point } from './vim/actions';
+import { diffRow, firstOnScreen, headerOnScreen, isOnScreen, retryEachFrame, reveal, revealHeader } from './vim/dom';
+import { FileView } from './vim/FileView';
+import { useNav, useReading } from './vim/hooks';
+import { feed, tokenOf } from './vim/keys';
+import { changedLinesOf, rowsOf } from './vim/model';
+import { Prompt, usePromptResults } from './vim/Prompt';
+import { type Progress, fileProgress, overallProgress, percent, unreadLines, unreadRowsOf } from './vim/read';
+import { type Context, type Effect, currentCursor } from './vim/state';
+import { StatusLine } from './vim/StatusLine';
 
 const keepHeaderInView = (path: string) =>
   requestAnimationFrame(() =>
@@ -31,8 +41,22 @@ const keepHeaderInView = (path: string) =>
     }),
   );
 
-const isTyping = (target: EventTarget | null) =>
-  target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+const isTyping = (target: EventTarget | null): target is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement =>
+  target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+
+const isPaletteName = (name: string): name is PaletteName => name in palettes;
+
+const halfPageRows = () => Math.max(4, Math.floor(window.innerHeight / 40));
+
+const cellList = (lines: readonly { readonly side: string; readonly line: number }[]) =>
+  lines.map((line) => `${line.side}:${line.line}`).join(' ');
+
+const useSourceText = (path: string | null) => {
+  const result = useAtomValue(sourceAtomFor(path ?? ''));
+  return path !== null && result._tag === 'Success' ? result.value : null;
+};
+
+const noProgress: Progress = { read: 0, total: 0 };
 
 const useSnapshot = () => {
   const snapshot = useAtomValue(snapshotAtom);
@@ -84,6 +108,8 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
   const [explainerOpen, setExplainerOpen] = useState(wideScreen);
   const [explainerWidth, setExplainerWidth] = useState(savedExplainerWidth);
   const [sectionRequest, setSectionRequest] = useState<SectionRequest | null>(null);
+  const [compose, setCompose] = useState<{ readonly path: string; readonly request: ComposeRequest } | null>(null);
+  const { nav, dispatch, connect } = useNav();
   const hasExplainer = snapshot.explainer !== null;
 
   useEffect(() => {
@@ -171,12 +197,13 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
   );
 
   const jumpTo = useCallback((path: string) => {
+    dispatch({ type: 'select', cursor: { path, at: null } });
     setOpen(path, true);
     setPinnedFile(path);
     requestAnimationFrame(() =>
       document.getElementById(`file-${path}`)?.scrollIntoView({ behavior: 'instant', block: 'start' }),
     );
-  }, []);
+  }, [dispatch]);
 
   const openFile = useCallback((path: string) => {
     setOpen(path, true);
@@ -309,23 +336,153 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
     (window as unknown as { sidediffHear?: (text: string) => void }).sidediffHear = handleSpeech;
   }, [handleSpeech]);
 
+  const changedByFile = useMemo(
+    () => allFiles.map((file) => ({ path: file.path, changed: changedLinesOf(file.patch) })),
+    [allFiles],
+  );
+  const reading = nav.overlay !== null || nav.view.kind === 'file';
+  const marks = useReading(snapshot.repo, changedByFile, reading);
+  const unreadByFile = useMemo(
+    () => new Map(changedByFile.map((file) => [file.path, unreadLines(marks, file)])),
+    [changedByFile, marks],
+  );
+  const progressByFile = useMemo(
+    () => new Map(changedByFile.map((file) => [file.path, fileProgress(marks, file)])),
+    [changedByFile, marks],
+  );
+  const overall = useMemo(() => overallProgress(marks, changedByFile), [marks, changedByFile]);
+  const rowsByFile = useMemo(
+    () => new Map(allFiles.map((file) => [file.path, rowsOf(file.patch, diffStyle)])),
+    [allFiles, diffStyle],
+  );
+  const changedPaths = useMemo(() => new Set(allFiles.map((file) => file.path)), [allFiles]);
+  const results = usePromptResults(nav.overlay, snapshot.diffVersion, changedPaths);
+  const viewPath = nav.view.kind === 'file' ? nav.view.path : null;
+  const sourceText = useSourceText(viewPath);
+  const fileLines = useMemo(() => (sourceText === null ? null : sourceText.split('\n')), [sourceText]);
+
+  const ctx = useMemo(
+    (): Context => ({
+      files: visibleFiles.map((file) => {
+        const rows = rowsByFile.get(file.path) ?? [];
+        return {
+          path: file.path,
+          rows,
+          open: isOpen(file),
+          viewed: isViewed(file),
+          unreadRows: unreadRowsOf(rows, unreadByFile.get(file.path) ?? []),
+        };
+      }),
+      style: diffStyle,
+      halfPage: halfPageRows(),
+      fileLines,
+      results: results.targets,
+    }),
+    [visibleFiles, rowsByFile, isOpen, isViewed, unreadByFile, diffStyle, fileLines, results.targets],
+  );
+
+  const perform = (effect: Effect) => {
+    if (effect.kind === 'setOpen') return setOpen(effect.path, effect.open);
+    if (effect.kind === 'setStyle') return setDiffStyle(effect.style);
+    if (effect.kind === 'stepNote') return stepNote(effect.direction);
+    if (effect.kind === 'dismissGuide') return guide.dismiss();
+    if (effect.kind === 'copy') return void navigator.clipboard?.writeText(effect.text);
+    if (effect.kind === 'theme') {
+      const match = Object.keys(palettes)
+        .filter(isPaletteName)
+        .find((name) => name.includes(effect.name));
+      return match === undefined ? undefined : choosePalette(match);
+    }
+    if (effect.kind === 'compose')
+      return setCompose((current) => ({
+        path: effect.path,
+        request: { side: effect.side, line: effect.line, nonce: (current?.request.nonce ?? 0) + 1 },
+      }));
+    if (effect.kind === 'markViewed') {
+      const file = allFiles.find((item) => item.path === effect.path);
+      return file === undefined ? undefined : markViewed(file, effect.viewed);
+    }
+    if (effect.what === 'style') return setDiffStyle((style) => (style === 'split' ? 'unified' : 'split'));
+    if (effect.what === 'notes') return setShowNotes((visible) => !visible);
+    if (effect.what === 'comments') return setShowComments((visible) => !visible);
+    if (effect.what === 'explainer') return hasExplainer ? setExplainerOpen((visible) => !visible) : undefined;
+
+    return (voice.listening ? voice.stop : voice.start)();
+  };
+
+  connect(ctx, perform);
+
+  const cursor = currentCursor(nav, ctx);
+  const cursorKey = JSON.stringify([cursor, nav.view.kind]);
+
+  useEffect(() => {
+    if (nav.view.kind !== 'diff') return;
+    if (cursor === null) return;
+
+    const main = document.querySelector('main.files');
+    const at = cursor.at;
+    if (at === null) return retryEachFrame(() => revealHeader(cursor.path, main), 10);
+
+    return retryEachFrame(() => reveal(diffRow(cursor.path, at), main, 'center'), 40);
+  }, [cursorKey]);
+
+  const cursorRef = useRef(cursor);
+  cursorRef.current = nav.view.kind === 'diff' ? cursor : null;
+
+  useEffect(() => {
+    const main = document.querySelector('main.files');
+    if (main === null) return;
+
+    const timers = new Map<'t', ReturnType<typeof setTimeout>>();
+    const follow = () => {
+      const current = cursorRef.current;
+      if (current === null) return;
+
+      const at = current.at;
+      const visible = at === null ? headerOnScreen(current.path, main) : isOnScreen(diffRow(current.path, at), main);
+      if (visible) return;
+
+      const place = firstOnScreen(main);
+      if (place !== null) dispatch({ type: 'select', cursor: place });
+    };
+    const onScroll = () => {
+      const pending = timers.get('t');
+      if (pending !== undefined) clearTimeout(pending);
+      timers.set('t', setTimeout(follow, 160));
+    };
+
+    main.addEventListener('scroll', onScroll, { passive: true });
+    return () => main.removeEventListener('scroll', onScroll);
+  }, [dispatch]);
+
+  const navRef = useRef(nav);
+  navRef.current = nav;
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (isTyping(event.target)) return;
+      const token = tokenOf(event);
+      if (token === null) return;
 
-      if (event.key === 'n') stepNote(1);
-      if (event.key === 'p') stepNote(-1);
-      if (event.key === 's') setDiffStyle((style) => (style === 'split' ? 'unified' : 'split'));
-      if (event.key === 'a') setShowNotes((visible) => !visible);
-      if (event.key === 'i') setShowComments((visible) => !visible);
-      if (event.key === 'e' && hasExplainer) setExplainerOpen((visible) => !visible);
-      if (event.key === 'Escape') guide.dismiss();
-      if (event.key === 'm') (voice.listening ? voice.stop : voice.start)();
+      const current = navRef.current;
+      const prompting = current.overlay !== null;
+      const field = !prompting && isTyping(event.target) ? event.target : null;
+      if (field !== null && token === '<Esc>') return field.blur();
+      if (field !== null) return;
+
+      const fed = feed(prompting ? 'overlay' : 'normal', current.pending, token);
+      if (fed.consumed) event.preventDefault();
+
+      dispatch({ type: 'key', token });
     };
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [stepNote, guide, voice, hasExplainer]);
+  }, [dispatch]);
+
+  const selectLine = useCallback(
+    (path: string, at: Point) => dispatch({ type: 'select', cursor: { path, at } }),
+    [dispatch],
+  );
 
   const viewedCount = files.filter(isViewed).length;
   const totals = files.reduce(
@@ -373,6 +530,12 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
             <span style={{ width: `${files.length === 0 ? 0 : (viewedCount / files.length) * 100}%` }} />
           </span>
         </div>
+        <div className="progress read" title="Changed lines that were on screen long enough to read">
+          <span>{percent(overall)}% read</span>
+          <span className="bar">
+            <span style={{ width: `${percent(overall)}%` }} />
+          </span>
+        </div>
         <div className="controls">
           <div className="segmented">
             <button className={diffStyle === 'split' ? 'on' : ''} onClick={() => setDiffStyle('split')}>
@@ -397,10 +560,13 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
             </button>
           )}
           <button onClick={() => stepNote(-1)}>
-            ↑ <kbd>p</kbd>
+            ↑ <kbd>[n</kbd>
           </button>
           <button onClick={() => stepNote(1)}>
-            ↓ <kbd>n</kbd>
+            ↓ <kbd>]n</kbd>
+          </button>
+          <button onClick={() => dispatch({ type: 'openOverlay', overlay: 'help' })}>
+            Keys <kbd>?</kbd>
           </button>
           {voice.supported && (
             <button className={voice.listening ? 'mic on' : 'mic'} onClick={voice.listening ? voice.stop : voice.start}>
@@ -433,9 +599,21 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
         notesByFile={notesByFile}
         isViewed={isViewed}
         currentFile={currentFile}
+        progressByFile={progressByFile}
         onSelect={jumpTo}
       />
       <main className="files">
+        {nav.view.kind === 'file' && (
+          <FileView
+            path={nav.view.path}
+            line={nav.view.line}
+            contents={sourceText}
+            inDiff={changedPaths.has(nav.view.path)}
+            palette={palette}
+            dispatch={dispatch}
+          />
+        )}
+        <div className="diff-list" hidden={nav.view.kind === 'file'}>
         {files.length === 0 && <div className="empty">No changes in this range.</div>}
         {visibleFiles.map((file) => (
           <FileSection
@@ -449,7 +627,7 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
             collapsed={!isOpen(file)}
             viewed={isViewed(file)}
             activeNote={activeNote}
-            pinned={file.path === pinnedFile || guide.state.highlight?.file === file.path}
+            pinned={file.path === pinnedFile || guide.state.highlight?.file === file.path || cursor?.path === file.path}
             selection={
               guide.state.highlight?.file === file.path && guide.state.highlight.start !== undefined
                 ? {
@@ -463,6 +641,12 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
             releaseSelection={guide.releaseLines}
             onViewed={markViewed}
             onFocusNote={focusNote}
+            cursorAt={nav.view.kind === 'diff' && cursor?.path === file.path ? cursor.at : undefined}
+            unread={cellList(unreadByFile.get(file.path) ?? [])}
+            readLines={(progressByFile.get(file.path) ?? noProgress).read}
+            changedLines={(progressByFile.get(file.path) ?? noProgress).total}
+            composeRequest={compose?.path === file.path ? compose.request : null}
+            onLineClick={selectLine}
           />
         ))}
         {showComments && commentsOnFilesNoLongerInDiff.length > 0 && (
@@ -478,7 +662,16 @@ const Review = ({ snapshot, connected }: { snapshot: Snapshot; connected: boolea
             ))}
           </section>
         )}
+        </div>
       </main>
+      <StatusLine
+        view={nav.view}
+        cursor={cursor}
+        pending={nav.pending}
+        message={nav.message}
+        read={overall}
+      />
+      {nav.overlay !== null && <Prompt overlay={nav.overlay} results={results} dispatch={dispatch} />}
       <HoverCard />
       <LinkCursor />
       <CodePanel palette={palette} />

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { FilePatch, Note } from './patch';
 import type { TreeNode } from './tree';
+import { type Progress, percent } from './vim/read';
 
 const statusGlyph: Record<FilePatch['status'], string> = {
   added: '+',
@@ -10,12 +11,25 @@ const statusGlyph: Record<FilePatch['status'], string> = {
   modified: '•',
 };
 
+const ReadMeter = ({ progress }: { progress: Progress | undefined }) => {
+  if (progress === undefined) return null;
+  if (progress.total === 0) return null;
+
+  const shown = percent(progress);
+  return (
+    <span className={shown === 100 ? 'read-meter done' : 'read-meter'} title={`Read ${progress.read} of ${progress.total} changed lines`}>
+      {shown}%
+    </span>
+  );
+};
+
 const Node = ({
   node,
   depth,
   notesByFile,
   isViewed,
   currentFile,
+  progressByFile,
   onSelect,
 }: {
   node: TreeNode;
@@ -23,6 +37,7 @@ const Node = ({
   notesByFile: Record<string, readonly Note[]>;
   isViewed: (file: FilePatch) => boolean;
   currentFile: string | null;
+  progressByFile: ReadonlyMap<string, Progress>;
   onSelect: (path: string) => void;
 }) => {
   const [open, setOpen] = useState(true);
@@ -49,6 +64,7 @@ const Node = ({
         <span className={`glyph status-${node.file.status}`}>{statusGlyph[node.file.status]}</span>
         <span className="tree-name">{node.name}</span>
         {notes > 0 && <span className="note-count">{notes}</span>}
+        <ReadMeter progress={progressByFile.get(node.file.path)} />
         {isViewed(node.file) && <span className="tick">✓</span>}
       </button>
     );
@@ -70,6 +86,7 @@ const Node = ({
             notesByFile={notesByFile}
             isViewed={isViewed}
             currentFile={currentFile}
+            progressByFile={progressByFile}
             onSelect={onSelect}
           />
         ))}
@@ -84,6 +101,7 @@ export const Sidebar = ({
   notesByFile,
   isViewed,
   currentFile,
+  progressByFile,
   onSelect,
 }: {
   tree: readonly TreeNode[];
@@ -92,6 +110,7 @@ export const Sidebar = ({
   notesByFile: Record<string, readonly Note[]>;
   isViewed: (file: FilePatch) => boolean;
   currentFile: string | null;
+  progressByFile: ReadonlyMap<string, Progress>;
   onSelect: (path: string) => void;
 }) => (
   <aside className="sidebar">
@@ -110,6 +129,7 @@ export const Sidebar = ({
           notesByFile={notesByFile}
           isViewed={isViewed}
           currentFile={currentFile}
+          progressByFile={progressByFile}
           onSelect={onSelect}
         />
       ))}

@@ -68,7 +68,17 @@ export class Git extends Context.Service<
         gitDir: (cwd) => trimmed(cwd, ['rev-parse', '--absolute-git-dir']),
         branch: (cwd) => trimmed(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).pipe(Effect.orElseSucceed(() => 'HEAD')),
         diff: (cwd, range) =>
-          run(cwd, ['-c', 'core.quotepath=false', 'diff', '--no-color', '--no-ext-diff', '--find-renames', ...range]),
+          run(cwd, [
+            '-c',
+            'core.quotepath=false',
+            'diff',
+            '--no-color',
+            '--no-ext-diff',
+            '--find-renames',
+            '--src-prefix=a/',
+            '--dst-prefix=b/',
+            ...range,
+          ]),
         sides,
         show: (cwd, rev, path) => run(cwd, ['show', `${rev}:${path}`]),
       };

@@ -16,6 +16,7 @@ import { Repo } from './repo.js';
 import { Review, ServeOptions } from './review.js';
 import { LspServers } from './lsp.js';
 import { LanguageServerCatalog } from './servers.js';
+import { Workspace } from './workspace.js';
 
 export const ServerInfo = Schema.Struct({ port: Schema.Int, host: Schema.String, pid: Schema.Int });
 
@@ -27,8 +28,11 @@ const RpcHandlers = SidediffRpcs.toLayer(
     const notes = yield* Notes;
     const language = yield* LanguageService;
     const explainer = yield* Explainer;
+    const workspace = yield* Workspace;
 
     return SidediffRpcs.of({
+      RepoFiles: () => workspace.files,
+      SearchRepo: ({ query }) => workspace.search(query),
       Hover: (at) => language.hover(at),
       Definition: (at) => language.definition(at),
       References: (at) => language.references(at),
@@ -152,6 +156,7 @@ export const serverLayer = (options: Context.Service.Shape<typeof ServeOptions>)
     Layer.provide(LanguageService.layer),
     Layer.provide(Layer.mergeAll(LspServers.layer, LanguageServerCatalog.layer)),
     Layer.provide(Review.layer),
+    Layer.provide(Workspace.layer),
     Layer.provide(Explainer.layer),
     Layer.merge(Announce),
     Layer.provide(NodeHttpServer.layer(createServer, {

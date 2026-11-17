@@ -50,7 +50,7 @@ kbd {
 .app {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   height: 100vh;
 }
 
@@ -1186,4 +1186,247 @@ kbd {
 
 .inline-thread.composing .comment-input {
   margin-top: 0;
+}
+
+.file-header.cursor {
+  box-shadow: inset 3px 0 0 var(--note);
+  background: color-mix(in srgb, var(--panel-2) 80%, var(--note));
+}
+
+.read-count {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.read-count.done {
+  color: var(--viewed);
+}
+
+.read-meter {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.read-meter.done {
+  color: var(--viewed);
+}
+
+.read-meter + .tick {
+  margin-left: 6px;
+}
+
+.progress.read .bar span {
+  background: var(--note);
+}
+
+.statusline {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 3px 12px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.status-mode {
+  color: var(--code, #111);
+  background: var(--accent);
+  border-radius: 3px;
+  padding: 0 6px;
+  font-weight: 600;
+}
+
+.status-where {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.status-message {
+  flex: 1;
+  color: var(--note);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-pending {
+  color: var(--text-strong);
+}
+
+.status-read {
+  white-space: nowrap;
+}
+
+.prompt-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.prompt {
+  width: min(760px, 92vw);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.prompt.help {
+  width: min(1000px, 94vw);
+  max-height: 80vh;
+}
+
+.prompt-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.prompt-status {
+  font-variant-numeric: tabular-nums;
+}
+
+.prompt-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 12px;
+  padding: 6px 10px;
+  background: var(--code, #111);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+}
+
+.prompt-prefix {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--accent);
+}
+
+.prompt-input input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.prompt-results {
+  overflow: auto;
+  border-top: 1px solid var(--border-muted);
+}
+
+.prompt-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 4px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.prompt-row.selected {
+  background: color-mix(in srgb, var(--bg) 70%, var(--accent));
+  color: var(--text-strong);
+}
+
+.prompt-row mark,
+.prompt-preview mark {
+  background: transparent;
+  color: var(--note);
+  font-weight: 700;
+}
+
+.prompt-location {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.prompt-preview {
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.help-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 4px 24px;
+  padding: 4px 16px 16px;
+  overflow: auto;
+}
+
+.help-grid h4 {
+  margin: 10px 0 4px;
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.help-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+  padding: 1px 0;
+}
+
+.help-keys {
+  min-width: 110px;
+}
+
+.help-keys kbd {
+  margin: 0 4px 0 0;
+  color: var(--text-strong);
+}
+
+.help-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.whole-file .file-line {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.file-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.help-commands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
 }

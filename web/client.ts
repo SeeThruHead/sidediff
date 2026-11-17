@@ -130,7 +130,7 @@ const sourceAtom = Atom.family((key: string) => {
   const [, path] = JSON.parse(key) as [string, string];
 
   return SidediffClient.runtime
-    .atom(SidediffClient.use((client) => client('Source', { path })))
+    .atom(SidediffClient.use((client) => (path === '' ? Effect.succeed('') : client('Source', { path }))))
     .pipe(Atom.setIdleTTL(Duration.minutes(10)));
 });
 
@@ -147,6 +147,22 @@ export const referencesAt = (at: CodePosition): Promise<readonly CodeLocation[]>
 
 export const readSource = (path: string): Promise<string> =>
   ask(sourceAtom(JSON.stringify([currentDiffVersion(), path])));
+
+export const sourceAtomFor = (path: string) => sourceAtom(JSON.stringify([currentDiffVersion(), path]));
+
+export const repoFilesAtom = Atom.family((version: string) =>
+  SidediffClient.runtime
+    .atom(SidediffClient.use((client) => client('RepoFiles', undefined)))
+    .pipe(Atom.setIdleTTL(Duration.minutes(30)), Atom.withLabel(`repo-files:${version}`)),
+);
+
+export const searchRepoAtom = Atom.family((query: string) =>
+  SidediffClient.runtime
+    .atom(SidediffClient.use((client) => (query === '' ? Effect.succeed([]) : client('SearchRepo', { query }))))
+    .pipe(Atom.setIdleTTL(Duration.minutes(2))),
+);
+
+export const preloadSource = (path: string) => void readSource(path).catch(() => undefined);
 
 export const isInDiff = (path: string) => {
   const snapshot = registry.get(snapshotAtom);

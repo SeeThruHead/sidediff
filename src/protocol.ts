@@ -209,7 +209,29 @@ export class ExplainerMissing extends Schema.TaggedError<ExplainerMissing>()('Ex
   }
 }
 
+export const SearchHit = Schema.Struct({
+  path: Schema.String,
+  line: Line,
+  column: Column,
+  text: Schema.String,
+});
+export type SearchHit = typeof SearchHit.Type;
+
+export class SearchUnavailable extends Schema.TaggedError<SearchUnavailable>()('SearchUnavailable', {
+  reason: Schema.String,
+}) {
+  override get message() {
+    return this.reason;
+  }
+}
+
 export const SidediffRpcs = RpcGroup.make(
+  Rpc.make('RepoFiles', { success: Schema.Array(Schema.String), error: SearchUnavailable }),
+  Rpc.make('SearchRepo', {
+    payload: { query: Schema.NonEmptyString },
+    success: Schema.Array(SearchHit),
+    error: SearchUnavailable,
+  }),
   Rpc.make('Hover', { payload: codePositionFields, success: Schema.NullOr(HoverInfo), error: LanguageUnavailable }),
   Rpc.make('Definition', {
     payload: codePositionFields,

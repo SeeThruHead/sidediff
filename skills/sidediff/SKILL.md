@@ -197,7 +197,7 @@ Other languages: add servers in `~/.config/sidediff/servers.json` or the reposit
 
 ## Keyboard (for telling the reviewer)
 
-`+` on a hovered line starts a thread, `n`/`p` next/previous note, `a` show/hide the notes column, `i` show/hide inline comments, `s` split/unified, `e` explainer panel, `Esc` clear the highlight.
+`+` on a hovered line (or `c` on the cursor line) starts a thread, `]n`/`[n` next/previous note, `?` lists every key (the page is driven vim style: `j`/`k`, `]c`, `Ctrl-p` file finder, `Space /` repository search), `a` show/hide the notes column, `i` show/hide inline comments, `s` split/unified, `e` explainer panel, `Esc` clear the highlight.
 
 ## Voice (optional, off unless the user asks)
 

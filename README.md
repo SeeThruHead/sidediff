@@ -8,6 +8,8 @@ GitHub-style diff review in the browser, with a live notes column. Built on [`@p
 - Viewed marks are stored per repository in the browser and clear themselves when a file changes again, like GitHub.
 - Watch mode by default: edits, commits and checkouts re-render the page without a refresh.
 - Notes are plain files that any tool or agent can write while you read; they appear immediately.
+- Keyboard only, vim style: a cursor line, hunk and file jumps, a fuzzy finder over the whole repository, ripgrep search, and a jump list.
+- Tracks how much of the change you actually read, from what was on screen, per file and overall.
 
 ## Install
 
@@ -49,7 +51,22 @@ sidediff HEAD~1 --no-watch    # a fixed range, no watching
 
 Options: `--port` (default 4977, falls back to the next free port), `--host` (default 127.0.0.1), `--no-open`, `--no-watch`. Any other arguments are passed to `git diff`.
 
-Keys: `s` split or unified, `a` show or hide notes, `i` show or hide comments, `n` / `p` next or previous note, `e` show or hide the explainer.
+## Keys
+
+Everything works from the keyboard, vim style; `?` in the page lists every key. A highlighted cursor line shows where you are, and a count goes before a motion (`5j`, `3]c`).
+
+- Move: `j` / `k` lines, `h` / `l` old or new side in split view, `gg` / `G` first and last line, `Ctrl-d` / `Ctrl-u` half a page, `Ctrl-f` / `Ctrl-b` a page.
+- Jump: `]c` / `[c` next or previous change, `]f` / `[f` files, `]u` / `[u` changes you have not read yet, `]n` / `[n` notes, `Ctrl-o` / `Ctrl-i` back and forward through the jump list.
+- Find: `/` searches the diff and `n` / `N` repeat it; `Ctrl-p` (or `Space f`) is a fuzzy finder over every file in the repository; `Space /` (or `Space g`) searches the whole repository with ripgrep; `gf` opens the whole file at the cursor line. A file or search hit opens in the diff when the line is part of it, otherwise in a whole-file view (`q` goes back).
+- Review: `zo` / `zc` / `za` (or `Enter`) open and close a file, `v` marks it viewed and moves to the next, `c` comments on the cursor line, `yy` copies `path:line`.
+- View: `s` split or unified, `a` notes, `i` comments, `e` explainer, `m` talk.
+- `:` opens a command line: `:42`, `:e path:line`, `:rg text`, `:find text`, `:split`, `:unified`, `:viewed`, `:theme eighties`, `:help`.
+
+Repository search needs `rg` on the machine running sidediff.
+
+## How much you read
+
+A changed line counts as read once it has been fully on screen for a little over a second while the page has focus and you are not idle. Each file header and the file tree show how many of its changed lines you have read, the status line shows the total ("read 62% of changed lines"), unread changed lines carry a yellow bar on the left, and `]u` jumps to the next unread change. Read lines are stored per repository in the browser, like Viewed marks, and a line that changes again counts as unread.
 
 ## Notes
 
