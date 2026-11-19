@@ -7,7 +7,16 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "lib": ["ESNext", "DOM", "DOM.Iterable"]
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
+    ]
   },
-  "include": ["web", "src/protocol.ts"]
+  "include": [
+    "web",
+    "src/protocol.ts",
+    "src/**/*.test.ts",
+    "src/watcher.ts"
+  ]
 }

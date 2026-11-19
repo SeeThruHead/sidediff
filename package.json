@@ -32,6 +32,7 @@
   "devDependencies": {
     "@effect/atom-react": "4.0.0-rc.118",
     "@effect/platform-browser": "4.0.0-rc.118",
+    "@effect/vitest": "4.0.0-rc.118",
     "@pierre/diffs": "^1.4.3",
     "@types/node": "^26.6.2",
     "@types/react": "^19.3.0",

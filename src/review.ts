@@ -33,6 +33,7 @@ import {
   type Working,
 } from './protocol.js';
 import { Repo } from './repo.js';
+import { WATCH_LIMIT, changedPaths, planWatches, refreshTriggers } from './watcher.js';
 
 export class ServeOptions extends Context.Service<
   ServeOptions,
@@ -41,22 +42,20 @@ export class ServeOptions extends Context.Service<
     readonly port: number;
     readonly host: string;
     readonly watch: boolean;
+    readonly poll: boolean;
     readonly explainer: string | null;
   }
 >()('sidediff/ServeOptions') {}
 
-const ignoredSegments = new Set(['node_modules', 'dist', '.next', '.turbo', '.cache', 'coverage']);
+const POLL_EVERY = Duration.seconds(2);
 
-const isRelevant = (file: string) => {
-  const parts = file.split('/');
-  if (parts.some((part) => ignoredSegments.has(part))) return false;
-  if (parts[0] !== '.git') return true;
+const BACKSTOP_EVERY = Duration.seconds(15);
 
-  return isGitStateChange(file);
-};
-
-const isGitStateChange = (file: string) =>
-  file.includes('HEAD') || file.includes('refs') || file.endsWith('index');
+const refNames = (range: readonly string[]) =>
+  range
+    .filter((arg) => !arg.startsWith('-'))
+    .flatMap((arg) => arg.split(/\.{2,3}/))
+    .filter((name) => name !== '');
 
 const AGENT = 'agent';
 
@@ -112,6 +111,28 @@ export class Review extends Context.Service<
       }
 
       yield* explainer.poll.pipe(Effect.repeat(Schedule.spaced(Duration.seconds(1))), Effect.forkScoped);
+
+      const refDir = (name: string) =>
+        git.run(repo.root, ['rev-parse', '--symbolic-full-name', name]).pipe(
+          Effect.map((full) => full.trim()),
+          Effect.map((full) => (full.startsWith('refs/') ? [full] : [])),
+          Effect.orElseSucceed((): readonly string[] => []),
+        );
+
+      const watchedGitDirs = Effect.gen(function* () {
+        const gitDir = yield* git.gitDir(repo.root).pipe(Effect.option);
+        const commonDir = yield* git
+          .run(repo.root, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
+          .pipe(Effect.map((dir) => dir.trim()), Effect.option);
+        const refs = yield* Effect.forEach(['HEAD', ...refNames(options.range)], refDir, { concurrency: 4 });
+        const common = Option.getOrElse(commonDir, () => Option.getOrElse(gitDir, () => path.join(repo.root, '.git')));
+
+        return [
+          ...Option.toArray(gitDir),
+          common,
+          ...refs.flat().map((ref) => path.dirname(path.join(common, ref))),
+        ];
+      });
 
       const readPatch = Effect.map(
         Effect.all([git.diff(repo.root, options.range), git.branch(repo.root)], { concurrency: 'unbounded' }),
@@ -188,24 +209,29 @@ export class Review extends Context.Service<
       );
 
       if (options.watch) {
-        const gitDir = yield* git.gitDir(repo.root).pipe(Effect.option);
-        const gitDirOutsideWorktree = Option.filter(gitDir, (dir) =>
-          path.relative(repo.root, dir).startsWith('..'),
+        const gitDirs = yield* watchedGitDirs;
+        const sides = yield* git.sides(repo.root, options.range).pipe(Effect.option);
+        const workingTree = Option.match(sides, { onNone: () => true, onSome: (found) => found.new === null });
+        const plans = SubscriptionRef.changes(diff).pipe(
+          Stream.map(({ patch }) =>
+            planWatches({
+              gitDirs,
+              fileDirs: changedPaths(patch).map((file) => path.dirname(path.join(repo.root, file))),
+              limit: WATCH_LIMIT,
+            }),
+          ),
+          Stream.changesWith((a, b) => a.complete === b.complete && a.dirs.join('\0') === b.dirs.join('\0')),
         );
 
-        const worktreeChanges = fs.watch(repo.root, { recursive: true }).pipe(
-          Stream.filter((event) => isRelevant(event.path)),
-        );
-        const linkedWorktreeCommits = Option.match(gitDirOutsideWorktree, {
-          onNone: () => Stream.empty,
-          onSome: (dir) =>
-            fs.watch(dir, { recursive: true }).pipe(Stream.filter((event) => isGitStateChange(event.path))),
-        });
-
-        yield* Stream.merge(worktreeChanges, linkedWorktreeCommits).pipe(
+        yield* refreshTriggers(plans, {
+          poll: options.poll,
+          workingTree,
+          pollEvery: POLL_EVERY,
+          backstopEvery: BACKSTOP_EVERY,
+        }).pipe(
           Stream.debounce(Duration.millis(250)),
           Stream.runForEach(() => refresh),
-          Effect.catch((error) => Effect.logWarning('[watch] stopped', error)),
+          Effect.catchCause((cause) => Effect.logWarning('[watch] stopped; reload the page to see new changes', cause)),
           Effect.forkScoped,
         );
       }

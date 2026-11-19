@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { NodeRuntime, NodeServices, NodeSocket } from '@effect/platform-node';
-import { Console, Context, Duration, Effect, FileSystem, Layer, Option, Path, Schema, Stdio, Stream } from 'effect';
+import { Console, Context, Duration, Effect, FileSystem, Layer, Option, Path, Predicate, Schema, Stdio, Stream } from 'effect';
 import { Argument, Command, Flag } from 'effect/cli';
 import { ChildProcess, ChildProcessSpawner } from 'effect/process';
 import { RpcClient, type RpcClientError, type RpcGroup, RpcSerialization } from 'effect/rpc';
@@ -28,6 +28,23 @@ class NoServer extends Schema.TaggedError<NoServer>()('NoServer', { serverFile: 
     return 'no sidediff server is running for this repository; start one with `sidediff <range>`';
   }
 }
+
+class ServerGone extends Schema.TaggedError<ServerGone>()('ServerGone', { reason: Schema.String }) {
+  override get message() {
+    return `lost the sidediff server for this repository (${this.reason}); it stopped or crashed. Start it again with \`sidediff <range>\` and rerun this command`;
+  }
+}
+
+const serverGone = (reason: string) => () => new ServerGone({ reason });
+
+const awaitFirst = <A, R>(stream: Stream.Stream<A, RpcClientError.RpcClientError, R>, wait: number) =>
+  stream.pipe(
+    Stream.take(1),
+    Stream.runHead,
+    Effect.mapError((error) => new ServerGone({ reason: error.message })),
+    Effect.flatMap(Option.match({ onNone: () => Effect.fail(serverGone('it closed the connection')()), onSome: Effect.succeed })),
+    Effect.timeoutOption(Duration.seconds(wait)),
+  );
 
 class NotARepository extends Schema.TaggedError<NotARepository>()('NotARepository', { cwd: Schema.String }) {
   override get message() {
@@ -63,6 +80,7 @@ class Client extends Context.Service<
             Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(ServerInfo))),
             Effect.mapError(() => new NoServer({ serverFile })),
           );
+          if (!(yield* isAlive(info.pid))) return yield* new NoServer({ serverFile });
 
           return NodeSocket.layerWebSocket(`ws://${info.host}:${info.port}/rpc`);
         }),
@@ -71,6 +89,12 @@ class Client extends Context.Service<
     Layer.provide(RpcSerialization.layerNdjson),
   );
 }
+
+const isAlive = (pid: number) =>
+  Effect.try(() => process.kill(pid, 0)).pipe(
+    Effect.as(true),
+    Effect.catch((error) => Effect.succeed(Predicate.hasProperty(error.cause, 'code') && error.cause.code === 'EPERM')),
+  );
 
 const print = (value: unknown) => Console.log(JSON.stringify(value));
 
@@ -304,12 +328,7 @@ const listen = Command.make(
     Effect.gen(function* () {
       const client = yield* Client;
 
-      const heard = yield* client.Listen(after === undefined ? {} : { after }).pipe(
-        Stream.take(1),
-        Stream.runHead,
-        Effect.timeoutOption(Duration.seconds(wait)),
-        Effect.map(Option.flatten),
-      );
+      const heard = yield* awaitFirst(client.Listen(after === undefined ? {} : { after }), wait);
 
       yield* Effect.forEach(Option.getOrElse(heard, () => []), (utterance) =>
         Console.log(`${utterance.id}\t${utterance.text}`),
@@ -404,13 +423,12 @@ const threads = Command.make(
     Effect.gen(function* () {
       const client = yield* Client;
 
-      const next = yield* client.Threads(after === undefined ? {} : { after }).pipe(
-        Stream.map((batch) => batch.filter((event) => all || event.author !== 'agent')),
-        Stream.filter((batch) => batch.length > 0),
-        Stream.take(1),
-        Stream.runHead,
-        Effect.timeoutOption(Duration.seconds(wait)),
-        Effect.map(Option.flatten),
+      const next = yield* awaitFirst(
+        client.Threads(after === undefined ? {} : { after }).pipe(
+          Stream.map((batch) => batch.filter((event) => all || event.author !== 'agent')),
+          Stream.filter((batch) => batch.length > 0),
+        ),
+        wait,
       );
 
       yield* Effect.forEach(Option.getOrElse(next, () => []), (event) => Console.log(eventLine(event)), {
@@ -554,6 +572,11 @@ const init = Command.make(
   ({ agent, dir }) => initSkill(agent, dir),
 ).pipe(Command.withDescription("install the sidediff skill into your coding agents' skills folders"));
 
+const watchMode = (watch: boolean, poll: boolean) => {
+  if (!watch) return 'watch off';
+  return poll ? 'polling for changes' : 'watching for changes';
+};
+
 const sidediff = Command.make(
   'sidediff',
   {
@@ -562,9 +585,10 @@ const sidediff = Command.make(
     host: Flag.String('host').pipe(Flag.withDefault('127.0.0.1')),
     open: Flag.Boolean('open').pipe(Flag.withDefault(true)),
     watch: Flag.Boolean('watch').pipe(Flag.withDefault(true)),
+    poll: Flag.Boolean('poll').pipe(Flag.withDefault(false)),
     explainer: optionalText('explainer'),
   },
-  ({ range, port, host, open, watch, explainer }) =>
+  ({ range, port, host, open, watch, poll, explainer }) =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const repo = yield* Repo;
@@ -575,11 +599,11 @@ const sidediff = Command.make(
       const page = explainer === undefined ? null : path.resolve(explainer);
 
       yield* Layer.launch(
-        serverLayer({ range, port: chosen, host, watch, explainer: page }).pipe(
+        serverLayer({ range, port: chosen, host, watch, poll, explainer: page }).pipe(
           Layer.merge(
             Layer.effectDiscard(
               Effect.andThen(
-                Console.log(`sidediff: ${url}  (${watch ? 'watching for changes' : 'watch off'})`),
+                Console.log(`sidediff: ${url}  (${watchMode(watch, poll)})`),
                 open ? openBrowser(url) : Effect.void,
               ),
             ),
